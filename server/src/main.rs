@@ -21,13 +21,12 @@ async fn main() {
     let (tx, _) = broadcast::channel(MAX_CONNECTIONS);
 
     loop {
-        let (mut socket, addr) = listener.accept().await.unwrap();
-        // handle_client(tx.clone());
+        let (mut client_socket, addr) = listener.accept().await.unwrap();
         let tx = tx.clone();
         let mut rx = tx.subscribe();
 
         tokio::spawn(async move {
-            let (reader, mut writer) = socket.split();
+            let (reader, mut writer) = client_socket.split();
             let mut reader = BufReader::new(reader);
             let mut line = String::new();
             loop {
@@ -36,7 +35,7 @@ async fn main() {
                         if result.unwrap() == 0 {
                             break;
                         }
-                        print!("[{}] {line}", Local::now());
+                        print!("[{}] {}", Local::now(), line);
                         tx.send((line.clone(), addr)).unwrap();
                         line.clear();
                     }
