@@ -1,35 +1,11 @@
 use chrono::Local;
-use tokio::io::Stdin;
-use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
 };
 
-// TODO: Change return type to Result<String, std::io::Error>
-async fn validate_username(
-    stdin_reader: &mut BufReader<Stdin>,
-    stream_reader: &mut BufReader<ReadHalf<'_>>,
-    writer: &mut WriteHalf<'_>,
-) -> String {
-    let mut username = String::new();
-    let mut response = String::new();
-    loop {
-        tokio::select! {
-            received_data = stream_reader.read_line(&mut response) => {
-                if received_data.unwrap() == 0 || response.trim() == "Ok" {
-                    return username;
-                }
-                eprintln!("[ERROR] Invalid username. Try again");
-                response.clear();
-            }
-            _ = stdin_reader.read_line(&mut username) => {
-                writer.write_all(&username.as_bytes()).await.unwrap();
-                username.clear();
-            }
-        }
-    }
-}
+mod client;
+use client::*;
 
 #[tokio::main]
 async fn main() {
