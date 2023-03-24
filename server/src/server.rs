@@ -1,5 +1,4 @@
 use chrono::Local;
-use std::collections::HashMap;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{
@@ -9,8 +8,10 @@ use tokio::{
     sync::broadcast,
 };
 
-pub const MAX_CONNECTIONS: usize = 10;
-pub const SERVER_ADDRESS: &str = "localhost:8080";
+const MAX_CONNECTIONS: usize = 10;
+const SERVER_ADDRESS: &str = "localhost:8080";
+const CONNECTION_MESSAGE: &str = "[NEW CONNECTION] user has been connected to the server\n";
+const DISCONNECTION_MESSAGE: &str = "[DISCONNECTION] user has been disconnected from the server\n";
 
 pub struct Server {
     listener: TcpListener,
@@ -25,9 +26,7 @@ impl Server {
                 std::process::exit(1)
             }
         };
-        Self {
-            listener,
-        }
+        Self { listener }
     }
 
     pub async fn run_server(&mut self) -> ! {
@@ -47,19 +46,27 @@ impl Server {
                 let mut line = String::new();
                 let username = validate_username(&mut reader, &mut writer).await;
 
-                println!(
-                    "[{}] [CONNECTION] {} ({:?}) has been connected to the server",
+                print!(
+                    "[{}] {}",
                     Local::now(),
-                    username,
-                    client_addr
+                    CONNECTION_MESSAGE.replace("user", &username.clone())
                 );
+                // TODO: Send connection message to all other clients. It will
+                // be implemented after authentification system will be implemented.
 
+                // TODO: Fix the issue
+                // between the moment when the client has connected and has
+                // not yet entered a nickname, all messages on the server are
+                // stored and transmitted to the client after entering the nickname
                 loop {
                     tokio::select! {
                         result = reader.read_line(&mut line) => {
                             match result {
                                 Ok(0) => {
-                                    // TODO: Send a disconnection message to all other clients
+                                    let disc_msg =
+                                        DISCONNECTION_MESSAGE.replace("user", &username.clone());
+                                    print!{"{}", disc_msg.clone()};
+                                    tx.send((disc_msg.clone(), client_addr)).unwrap();
                                     break;
                                 }
                                 Ok(_) => {
