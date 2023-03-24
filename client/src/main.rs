@@ -28,6 +28,7 @@ async fn main() {
     loop {
         tokio::select! {
             received_data = stream_reader.read_line(&mut stream_line) => {
+                // TODO: Fix this
                 if received_data.unwrap() == 0 {
                     break;
                 }

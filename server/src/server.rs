@@ -5,6 +5,7 @@ use tokio::{
         tcp::{ReadHalf, WriteHalf},
         TcpListener,
     },
+    // signal::unix::{signal, SignalKind},
     sync::broadcast,
 };
 
@@ -12,6 +13,7 @@ const MAX_CONNECTIONS: usize = 10;
 const SERVER_ADDRESS: &str = "localhost:8080";
 const CONNECTION_MESSAGE: &str = "[NEW CONNECTION] user has been connected to the server\n";
 const DISCONNECTION_MESSAGE: &str = "[DISCONNECTION] user has been disconnected from the server\n";
+// const SHUTDOWN_MESSAGE: &str = "[SERVER] Server is shutting down\n";
 
 pub struct Server {
     listener: TcpListener,
@@ -29,13 +31,26 @@ impl Server {
         Self { listener }
     }
 
-    pub async fn run_server(&mut self) -> ! {
+    // TODO: On server shutdown send messages to all clients that server is
+    // shutting down
+    pub async fn run_server(&mut self) {
         let (tx, _) = broadcast::channel(MAX_CONNECTIONS);
         loop {
             let (mut client_socket, _) = self.listener.accept().await.unwrap();
 
             let tx = tx.clone();
             let mut rx = tx.subscribe();
+
+            // Explanation: Code that handles the SIGINT signal and sends a 
+            // message about it to all clients
+            // let mut sigint = signal(SignalKind::interrupt()).unwrap();
+            // let tx_shutdown = tx.clone();
+            // tokio::spawn(async move {
+            //     sigint.recv().await;
+            //     tx_shutdown
+            //         .send((SHUTDOWN_MESSAGE.to_string(), None))
+            //         .unwrap();
+            // });
 
             tokio::spawn(async move {
                 // TODO: Store only client_socket and get addr by a function
@@ -66,12 +81,12 @@ impl Server {
                                     let disc_msg =
                                         DISCONNECTION_MESSAGE.replace("user", &username.clone());
                                     print!{"{}", disc_msg.clone()};
-                                    tx.send((disc_msg.clone(), client_addr)).unwrap();
+                                    tx.send((disc_msg.clone(), Some(client_addr))).unwrap();
                                     break;
                                 }
                                 Ok(_) => {
                                     print!("[{}] {}", Local::now(), line);
-                                    tx.send((line.clone(), client_addr)).unwrap();
+                                    tx.send((line.clone(), Some(client_addr))).unwrap();
                                     line.clear();
                                 }
                                 Err(_) => {
@@ -82,9 +97,21 @@ impl Server {
                         }
                         result = rx.recv() => {
                             let (msg, sender_addr) = result.unwrap();
-                            if client_addr != sender_addr {
-                                writer.write_all(&msg.as_bytes()).await.unwrap();
+                            // if msg == SHUTDOWN_MESSAGE {
+                            //     writer.write_all(&msg.as_bytes()).await.unwrap();
+                            //     std::process::exit(0)
+                            // }
+                            match sender_addr {
+                                Some(sender_addr) => {
+                                    if client_addr != sender_addr {
+                                        writer.write_all(&msg.as_bytes()).await.unwrap();
+                                    }
+                                }
+                                None => {
+                                    writer.write_all(&msg.as_bytes()).await.unwrap();
+                                }
                             }
+
                         }
                     }
                 }
