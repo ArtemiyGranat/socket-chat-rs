@@ -8,8 +8,8 @@ use tokio::{
     sync::broadcast,
 };
 
-mod config;
-use config::*;
+mod server;
+use server::*;
 
 async fn validate_username(
     reader: &mut BufReader<ReadHalf<'_>>,
