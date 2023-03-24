@@ -34,14 +34,14 @@ impl Server {
     // TODO: On server shutdown send messages to all clients that server is
     // shutting down
     pub async fn run_server(&mut self) {
-        let (tx, _) = broadcast::channel(MAX_CONNECTIONS);
+        let (sender, _) = broadcast::channel(MAX_CONNECTIONS);
         loop {
             let (mut client_socket, _) = self.listener.accept().await.unwrap();
 
-            let tx = tx.clone();
-            let mut rx = tx.subscribe();
+            let sender = sender.clone();
+            let mut receiver = sender.subscribe();
 
-            // Explanation: Code that handles the SIGINT signal and sends a 
+            // Explanation: Code that handles the SIGINT signal and sends a
             // message about it to all clients
             // let mut sigint = signal(SignalKind::interrupt()).unwrap();
             // let tx_shutdown = tx.clone();
@@ -81,12 +81,12 @@ impl Server {
                                     let disc_msg =
                                         DISCONNECTION_MESSAGE.replace("user", &username.clone());
                                     print!{"{}", disc_msg.clone()};
-                                    tx.send((disc_msg.clone(), Some(client_addr))).unwrap();
+                                    sender.send((disc_msg.clone(), Some(client_addr))).unwrap();
                                     break;
                                 }
                                 Ok(_) => {
-                                    print!("[{}] {}", Local::now(), line);
-                                    tx.send((line.clone(), Some(client_addr))).unwrap();
+                                    print!("[{}] [{}] {}", Local::now(), username, line);
+                                    sender.send((format!("[{}] {}", username, line), Some(client_addr))).unwrap();
                                     line.clear();
                                 }
                                 Err(_) => {
@@ -95,7 +95,7 @@ impl Server {
                                 }
                             }
                         }
-                        result = rx.recv() => {
+                        result = receiver.recv() => {
                             let (msg, sender_addr) = result.unwrap();
                             // if msg == SHUTDOWN_MESSAGE {
                             //     writer.write_all(&msg.as_bytes()).await.unwrap();
