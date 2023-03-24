@@ -1,10 +1,8 @@
-use std::collections::HashMap;
-
 use chrono::Local;
+use std::collections::HashMap;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{
-        unix::SocketAddr,
         tcp::{ReadHalf, WriteHalf},
         TcpListener,
     },
@@ -15,7 +13,6 @@ pub const MAX_CONNECTIONS: usize = 10;
 pub const SERVER_ADDRESS: &str = "localhost:8080";
 
 pub struct Server {
-    clients_list: HashMap<SocketAddr, String>,
     listener: TcpListener,
 }
 
@@ -29,48 +26,56 @@ impl Server {
             }
         };
         Self {
-            clients_list: HashMap::new(),
-            listener
+            listener,
         }
     }
 
-    pub async fn run_server(&self) {
+    pub async fn run_server(&mut self) -> ! {
         let (tx, _) = broadcast::channel(MAX_CONNECTIONS);
         loop {
-            let (mut client_socket, addr) = self.listener.accept().await.unwrap();
+            let (mut client_socket, _) = self.listener.accept().await.unwrap();
+
             let tx = tx.clone();
             let mut rx = tx.subscribe();
-    
+
             tokio::spawn(async move {
+                // TODO: Store only client_socket and get addr by a function
+                let client_addr = client_socket.peer_addr().unwrap();
+
                 let (reader, mut writer) = client_socket.split();
                 let mut reader = BufReader::new(reader);
                 let mut line = String::new();
-    
                 let username = validate_username(&mut reader, &mut writer).await;
+
                 println!(
                     "[{}] [CONNECTION] {} ({:?}) has been connected to the server",
                     Local::now(),
                     username,
-                    addr
+                    client_addr
                 );
+
                 loop {
                     tokio::select! {
                         result = reader.read_line(&mut line) => {
-                            // TODO: Handle unwrap in match
-                            // thread 'tokio-runtime-worker' panicked at 'called
-                            // `Result::unwrap()` on an `Err` value: Custom { kind:
-                            //  InvalidData, error: "stream did not contain valid
-                            // UTF-8" }', src/main.rs:79:35
-                            if result.unwrap() == 0 {
-                                break;
+                            match result {
+                                Ok(0) => {
+                                    // TODO: Send a disconnection message to all other clients
+                                    break;
+                                }
+                                Ok(_) => {
+                                    print!("[{}] {}", Local::now(), line);
+                                    tx.send((line.clone(), client_addr)).unwrap();
+                                    line.clear();
+                                }
+                                Err(_) => {
+                                    eprintln!("[ERROR] Stream did not contain valid UTF-8 data");
+                                    break;
+                                }
                             }
-                            print!("[{}] {}", Local::now(), line);
-                            tx.send((line.clone(), addr)).unwrap();
-                            line.clear();
                         }
                         result = rx.recv() => {
                             let (msg, sender_addr) = result.unwrap();
-                            if addr != sender_addr {
+                            if client_addr != sender_addr {
                                 writer.write_all(&msg.as_bytes()).await.unwrap();
                             }
                         }
@@ -79,8 +84,6 @@ impl Server {
             });
         }
     }
-
-
 }
 
 async fn validate_username(
