@@ -10,7 +10,6 @@ use client::*;
 
 #[tokio::main]
 async fn main() {
-    // Clear the console
     let mut socket = match TcpStream::connect("localhost:8080").await {
         Ok(socket) => socket,
         Err(_) => {
