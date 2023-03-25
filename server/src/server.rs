@@ -85,7 +85,7 @@ impl Server {
                                     break;
                                 }
                                 Ok(_) => {
-                                    print!("[{}] [{}] {}", Local::now(), username, line);
+                                    print!("[{}] [{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), username, line);
                                     sender.send((format!("[{}] {}", username, line), Some(client_addr))).unwrap();
                                     line.clear();
                                 }
@@ -120,6 +120,10 @@ impl Server {
     }
 }
 
+// TODO: Fix the issue: reader.read_line...unwrap() -> match
+// thread 'tokio-runtime-worker' panicked at 'called `Result::unwrap()` on an
+// `Err` value: Os { code: 54, kind: ConnectionReset, message: "Connection reset
+// by peer" }', src/server.rs:129:47
 async fn validate_username(
     reader: &mut BufReader<ReadHalf<'_>>,
     writer: &mut WriteHalf<'_>,
