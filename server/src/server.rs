@@ -87,7 +87,7 @@ impl Server {
                                     break;
                                 }
                                 Ok(_) => {
-                                    print!("[{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),line);
+                                    print!("[{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), line);
                                     sender.send((format!(" {}", line), Some(client_addr))).unwrap();
                                     line.clear();
                                 }

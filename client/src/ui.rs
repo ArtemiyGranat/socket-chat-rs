@@ -1,24 +1,13 @@
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use crossterm::event::{Event, EventStream, KeyCode};
 use futures::{FutureExt, StreamExt};
-use std::{
-    error::Error,
-    io,
-    // sync::mpsc::{self, TryRecvError},
-};
+use std::io;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Stdin},
-    net::{
-        tcp::{ReadHalf, WriteHalf},
-        TcpStream,
-    },
-    sync::mpsc::{self, error::TryRecvError},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::TcpStream,
+    sync::mpsc,
 };
 use tui::{
-    backend::{Backend, CrosstermBackend},
+    backend::Backend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
@@ -27,14 +16,12 @@ use tui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::client::*;
-
 enum InputMode {
     Normal,
     Insert,
 }
 
-struct App {
+pub struct App {
     input: String,
     input_mode: InputMode,
     messages: Vec<String>,
@@ -44,43 +31,13 @@ impl Default for App {
     fn default() -> App {
         App {
             input: String::new(),
-            input_mode: InputMode::Normal,
+            input_mode: InputMode::Insert,
             messages: Vec::new(),
         }
     }
 }
 
-pub async fn run_tui() -> Result<(), Box<dyn Error>> {
-    let mut socket = match TcpStream::connect("localhost:8080").await {
-        Ok(socket) => socket,
-        Err(_) => std::process::exit(1),
-    };
-
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    let app = App::default();
-    let res = run_app(&mut terminal, app, &mut socket).await;
-
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{:?}", err)
-    }
-
-    Ok(())
-}
-
-async fn run_app<B: Backend>(
+pub async fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
     mut app: App,
     socket: &mut TcpStream,
