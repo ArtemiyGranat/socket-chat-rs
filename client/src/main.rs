@@ -7,10 +7,7 @@ use std::{error::Error, io};
 use tokio::net::TcpStream;
 use tui::{backend::CrosstermBackend, Terminal};
 
-mod client;
 mod ui;
-
-use client::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

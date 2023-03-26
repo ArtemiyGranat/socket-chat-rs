@@ -1,4 +1,4 @@
-use crossterm::event::{Event, EventStream, KeyCode, self};
+use crossterm::event::{Event, EventStream, KeyCode};
 use futures::{FutureExt, StreamExt};
 use std::io;
 use tokio::{
@@ -11,7 +11,7 @@ use tui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Clear},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame, Terminal,
 };
 use unicode_width::UnicodeWidthStr;
@@ -49,12 +49,17 @@ pub async fn run_app<B: Backend>(
     let mut stream_reader = BufReader::new(stream_reader);
     let (tx, mut rx) = mpsc::channel::<String>(1);
     let mut data = String::new();
-    
+
     loop {
         terminal.draw(|f| ui(f, &app))?;
         let event = event_reader.next().fuse();
         tokio::select! {
             received_data = stream_reader.read_line(&mut data) => {
+                if received_data.unwrap() == 0 {
+                    // TODO: implement this feature, working but not like i want it to
+                    app.messages.push("[SERVER] Server is shutting down, app will be closed in 10 seconds".to_string());
+                    return Ok(());
+                }
                 if !app.logged_in {
                     if data.trim() == "Ok" {
                         app.logged_in = true;
@@ -71,6 +76,7 @@ pub async fn run_app<B: Backend>(
                 writer
                     .write_all(&format!("{}\n", msg.trim()).as_bytes())
                     .await
+                    // TODO: Change this
                     .expect("Failed");
                 }
             result = event => {
@@ -89,11 +95,14 @@ pub async fn run_app<B: Backend>(
                             KeyCode::Enter => {
                                 match tx.send(app.input.clone()).await {
                                     Ok(_) => (),
+                                    // TODO: Change this
                                     Err(_) => {
                                         app.messages.push("Fail".to_string());
                                     }
                                 }
-                                app.messages.push(app.input.drain(..).collect());
+                                if app.logged_in {
+                                    app.messages.push(app.input.drain(..).collect());
+                                }
                             }
                             KeyCode::Char(c) => {
                                 app.input.push(c);
@@ -188,9 +197,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         f.render_widget(block, area);
         match app.input_mode {
             InputMode::Normal => {}
-            InputMode::Insert => {
-                f.set_cursor(area.x + app.input.width() as u16 + 1, area.y + 1)
-            }
+            InputMode::Insert => f.set_cursor(area.x + app.input.width() as u16 + 1, area.y + 1),
         }
     }
 }
