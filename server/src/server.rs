@@ -61,13 +61,13 @@ impl Server {
                 let (reader, mut writer) = client_socket.split();
                 let mut reader = BufReader::new(reader);
                 let mut line = String::new();
-                // let username = validate_username(&mut reader, &mut writer).await;
+                let username = validate_username(&mut reader, &mut writer).await;
 
-                // print!(
-                //     "[{}] {}",
-                //     Local::now(),
-                //     CONNECTION_MESSAGE.replace("user", &username.clone())
-                // );
+                print!(
+                    "[{}] {}",
+                    Local::now(),
+                    CONNECTION_MESSAGE.replace("user", &username.clone())
+                );
                 // TODO: Send connection message to all other clients. It will
                 // be implemented after authentification system will be implemented.
 
@@ -80,14 +80,14 @@ impl Server {
                         result = reader.read_line(&mut line) => {
                             match result {
                                 Ok(0) => {
-                                    // let disc_msg =
-                                    //     DISCONNECTION_MESSAGE.replace("user", &username.clone());
-                                    // print!{"{}", disc_msg.clone()};
-                                    // sender.send((disc_msg.clone(), Some(client_addr))).unwrap();
+                                    let disc_msg =
+                                        DISCONNECTION_MESSAGE.replace("user", &username.clone());
+                                    print!{"{}", disc_msg.clone()};
+                                    sender.send((disc_msg.clone(), Some(client_addr))).unwrap();
                                     break;
                                 }
                                 Ok(_) => {
-                                    print!("[{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), line);
+                                    print!("[{}] [{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), username, line);
                                     sender.send((format!(" {}", line), Some(client_addr))).unwrap();
                                     line.clear();
                                 }
