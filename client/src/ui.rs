@@ -1,19 +1,21 @@
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use futures::{FutureExt, StreamExt};
 use std::{
     error::Error,
     io,
-    sync::mpsc::{self, TryRecvError},
+    // sync::mpsc::{self, TryRecvError},
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdin},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Stdin},
     net::{
         tcp::{ReadHalf, WriteHalf},
         TcpStream,
     },
+    sync::mpsc::{self, error::TryRecvError},
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -83,62 +85,66 @@ async fn run_app<B: Backend>(
     mut app: App,
     socket: &mut TcpStream,
 ) -> io::Result<()> {
-    // let (stream_reader, mut writer) = socket.split();
+    let mut event_reader = EventStream::new();
+    let (stream_reader, mut writer) = socket.split();
 
-    // let mut stream_reader = BufReader::new(stream_reader);
-    // let mut stdin_reader = BufReader::new(tokio::io::stdin());
+    let mut stream_reader = BufReader::new(stream_reader);
+    let mut stdin_reader = BufReader::new(tokio::io::stdin());
 
     // let _username = validate_username(&mut stdin_reader, &mut stream_reader, &mut writer).await;
 
-    let (tx, rx) = mpsc::channel::<String>();
-    let mut stream_line = String::new();
-    let mut stdin_line = String::new();
+    let (tx, mut rx) = mpsc::channel::<String>(1);
+    let mut line = String::new();
     loop {
         terminal.draw(|f| ui(f, &app))?;
-
-        match rx.try_recv() {
-            Ok(msg) => {
-                socket
+        let event = event_reader.next().fuse();
+        tokio::select! {
+            _ = stream_reader.read_line(&mut line) => {
+                app.messages.push(line.to_string());
+                line.clear();
+            }
+            result = rx.recv() => {
+                let msg = result.unwrap();
+                writer
                     .write_all(&format!("{}\n", msg.trim()).as_bytes())
                     .await
                     .expect("Failed");
-            }
-            Err(TryRecvError::Empty) => (),
-            Err(TryRecvError::Disconnected) => std::process::exit(1),
-        }
-
-        if let Event::Key(key) = event::read().unwrap() {
-            match app.input_mode {
-                InputMode::Normal => match key.code {
-                    KeyCode::Char('i') => {
-                        app.input_mode = InputMode::Insert;
-                    }
-                    KeyCode::Char('q') => {
-                        return Ok(());
-                    }
-                    _ => {}
-                },
-                InputMode::Insert => match key.code {
-                    KeyCode::Enter => {
-                        match tx.send(app.input.clone()) {
-                            Ok(_) => (),
-                            Err(_) => {
-                                app.messages.push("Fail".to_string());
+                }
+            result = event => {
+                if let Ok(Event::Key(key)) = result.unwrap() {
+                    match app.input_mode {
+                        InputMode::Normal => match key.code {
+                            KeyCode::Char('i') => {
+                                app.input_mode = InputMode::Insert;
                             }
-                        }
-                        app.messages.push(app.input.drain(..).collect());
+                            KeyCode::Char('q') => {
+                                return Ok(());
+                            }
+                            _ => {}
+                        },
+                        InputMode::Insert => match key.code {
+                            KeyCode::Enter => {
+                                match tx.send(app.input.clone()).await {
+                                    Ok(_) => (),
+                                    Err(_) => {
+                                        app.messages.push("Fail".to_string());
+                                    }
+                                }
+                                app.messages.push(app.input.drain(..).collect());
+                            }
+                            KeyCode::Char(c) => {
+                                app.input.push(c);
+                            }
+                            KeyCode::Backspace => {
+                                app.input.pop();
+                            }
+                            KeyCode::Esc => {
+                                app.input_mode = InputMode::Normal;
+                            }
+                            _ => {}
+                        },
                     }
-                    KeyCode::Char(c) => {
-                        app.input.push(c);
-                    }
-                    KeyCode::Backspace => {
-                        app.input.pop();
-                    }
-                    KeyCode::Esc => {
-                        app.input_mode = InputMode::Normal;
-                    }
-                    _ => {}
-                },
+                }
             }
         }
     }
