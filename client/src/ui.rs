@@ -3,7 +3,18 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::{error::Error, io};
+use std::{
+    error::Error,
+    io,
+    sync::mpsc::{self, TryRecvError},
+};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdin},
+    net::{
+        tcp::{ReadHalf, WriteHalf},
+        TcpStream,
+    },
+};
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
@@ -13,6 +24,8 @@ use tui::{
     Frame, Terminal,
 };
 use unicode_width::UnicodeWidthStr;
+
+use crate::client::*;
 
 enum InputMode {
     Normal,
@@ -35,7 +48,12 @@ impl Default for App {
     }
 }
 
-pub fn run_tui() -> Result<(), Box<dyn Error>> {
+pub async fn run_tui() -> Result<(), Box<dyn Error>> {
+    let mut socket = match TcpStream::connect("localhost:8080").await {
+        Ok(socket) => socket,
+        Err(_) => std::process::exit(1),
+    };
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -43,7 +61,7 @@ pub fn run_tui() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let app = App::default();
-    let res = run_app(&mut terminal, app);
+    let res = run_app(&mut terminal, app, &mut socket).await;
 
     disable_raw_mode()?;
     execute!(
@@ -60,9 +78,34 @@ pub fn run_tui() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
+async fn run_app<B: Backend>(
+    terminal: &mut Terminal<B>,
+    mut app: App,
+    socket: &mut TcpStream,
+) -> io::Result<()> {
+    // let (stream_reader, mut writer) = socket.split();
+
+    // let mut stream_reader = BufReader::new(stream_reader);
+    // let mut stdin_reader = BufReader::new(tokio::io::stdin());
+
+    // let _username = validate_username(&mut stdin_reader, &mut stream_reader, &mut writer).await;
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let mut stream_line = String::new();
+    let mut stdin_line = String::new();
     loop {
         terminal.draw(|f| ui(f, &app))?;
+
+        match rx.try_recv() {
+            Ok(msg) => {
+                socket
+                    .write_all(&format!("{}\n", msg.trim()).as_bytes())
+                    .await
+                    .expect("Failed");
+            }
+            Err(TryRecvError::Empty) => (),
+            Err(TryRecvError::Disconnected) => std::process::exit(1),
+        }
 
         if let Event::Key(key) = event::read().unwrap() {
             match app.input_mode {
@@ -77,6 +120,12 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 },
                 InputMode::Insert => match key.code {
                     KeyCode::Enter => {
+                        match tx.send(app.input.clone()) {
+                            Ok(_) => (),
+                            Err(_) => {
+                                app.messages.push("Fail".to_string());
+                            }
+                        }
                         app.messages.push(app.input.drain(..).collect());
                     }
                     KeyCode::Char(c) => {
@@ -99,13 +148,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(0)
-        .constraints(
-            [
-                Constraint::Percentage(90),
-                Constraint::Percentage(10),
-            ]
-            .as_ref(),
-        )
+        .constraints([Constraint::Percentage(90), Constraint::Percentage(10)].as_ref())
         .split(f.size());
 
     let (msg, _) = match app.input_mode {
@@ -139,8 +182,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             ListItem::new(content)
         })
         .collect();
-    let messages =
-        List::new(messages).block(Block::default().borders(Borders::ALL).title(msg));
+    let messages = List::new(messages).block(Block::default().borders(Borders::ALL).title(msg));
     f.render_widget(messages, chunks[0]);
 
     let input = Paragraph::new(app.input.as_ref())
@@ -148,12 +190,16 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             InputMode::Normal => Style::default(),
             InputMode::Insert => Style::default().fg(Color::Yellow),
         })
-        .block(Block::default().borders(Borders::ALL).title(" Enter the message"));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Enter the message"),
+        );
     f.render_widget(input, chunks[1]);
     match app.input_mode {
         InputMode::Normal => {}
         InputMode::Insert => {
-            f.set_cursor(chunks[2].x + app.input.width() as u16 + 1, chunks[2].y + 1)
+            f.set_cursor(chunks[1].x + app.input.width() as u16 + 1, chunks[1].y + 1)
         }
     }
 }
