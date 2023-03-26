@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use chrono::Local;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -13,7 +15,6 @@ const MAX_CONNECTIONS: usize = 10;
 const SERVER_ADDRESS: &str = "localhost:8080";
 const CONNECTION_MESSAGE: &str = "[NEW CONNECTION] user has been connected to the server\n";
 const DISCONNECTION_MESSAGE: &str = "[DISCONNECTION] user has been disconnected from the server\n";
-// const SHUTDOWN_MESSAGE: &str = "[SERVER] Server is shutting down\n";
 
 pub struct Server {
     listener: TcpListener,
@@ -31,26 +32,13 @@ impl Server {
         Self { listener }
     }
 
-    // TODO: On server shutdown send messages to all clients that server is
-    // shutting down
     pub async fn run_server(&mut self) {
         let (sender, _) = broadcast::channel(MAX_CONNECTIONS);
         loop {
             let (mut client_socket, _) = self.listener.accept().await.unwrap();
-
+            println!("NEW CONNECTION");
             let sender = sender.clone();
             let mut receiver = sender.subscribe();
-
-            // Explanation: Code that handles the SIGINT signal and sends a
-            // message about it to all clients
-            // let mut sigint = signal(SignalKind::interrupt()).unwrap();
-            // let tx_shutdown = tx.clone();
-            // tokio::spawn(async move {
-            //     sigint.recv().await;
-            //     tx_shutdown
-            //         .send((SHUTDOWN_MESSAGE.to_string(), None))
-            //         .unwrap();
-            // });
 
             tokio::spawn(async move {
                 // TODO: Store only client_socket and get addr by a function
@@ -85,10 +73,14 @@ impl Server {
                                     break;
                                 }
                                 Ok(_) => {
-                                    print!("[{}] [{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), username, line);
-                                    sender.send((format!("[{}] {}", username, line), Some(client_addr))).unwrap();
+                                    print!("[{}] [{}] {}",
+                                        Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                        username,
+                                        line);
+                                    sender.send((format!(" {}", line), Some(client_addr))).unwrap();
                                     line.clear();
                                 }
+                                // TODO: Add the lost connection error handling
                                 Err(_) => {
                                     eprintln!("[ERROR] Stream did not contain valid UTF-8 data");
                                     break;
@@ -97,10 +89,6 @@ impl Server {
                         }
                         result = receiver.recv() => {
                             let (msg, sender_addr) = result.unwrap();
-                            // if msg == SHUTDOWN_MESSAGE {
-                            //     writer.write_all(&msg.as_bytes()).await.unwrap();
-                            //     std::process::exit(0)
-                            // }
                             match sender_addr {
                                 Some(sender_addr) => {
                                     if client_addr != sender_addr {
@@ -123,7 +111,11 @@ impl Server {
 // TODO: Fix the issue: reader.read_line...unwrap() -> match
 // thread 'tokio-runtime-worker' panicked at 'called `Result::unwrap()` on an
 // `Err` value: Os { code: 54, kind: ConnectionReset, message: "Connection reset
-// by peer" }', src/server.rs:129:47
+// by peer" }', src/server.rs:125:47
+// TODO: Fix the issue
+// thread 'tokio-runtime-worker' panicked at 'called `Result::unwrap()` on an
+// `Err` value: Os { code: 32, kind: BrokenPipe, message: "Broken pipe" }',
+// src/server.rs:133:14
 async fn validate_username(
     reader: &mut BufReader<ReadHalf<'_>>,
     writer: &mut WriteHalf<'_>,
