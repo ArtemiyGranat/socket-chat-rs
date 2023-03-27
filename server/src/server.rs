@@ -77,7 +77,7 @@ impl Server {
                                     sender.send((format!("{}\n", json_data), Some(client_addr))).unwrap();
                                     data.clear();
                                 }
-                                // TODO: Add the lost connection error handling
+                                // TODO: Add the lost connection error handling (look for ConnectionResetError)
                                 Err(_) => {
                                     eprintln!("[ERROR] Stream did not contain valid UTF-8 data");
                                     break;

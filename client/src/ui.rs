@@ -36,6 +36,7 @@ impl Default for App {
             input: String::new(),
             input_mode: InputMode::Insert,
             messages: Vec::new(),
+            // TODO: Implement Status enum with NotConnected & LoggingIn & LoggedIn fields? Should be idiomatic I guess
             logged_in: false,
         }
     }
@@ -105,6 +106,7 @@ pub async fn run_app<B: Backend>(
                                 if app.logged_in {
                                     app.messages.push(app.input.drain(..).collect());
                                 }
+                                app.input.clear()
                             }
                             KeyCode::Char(c) => {
                                 app.input.push(c);
