@@ -25,6 +25,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = ui::App::default();
     let res = ui::run_app(&mut terminal, app, &mut socket).await;
 
+    // TODO: Handle the errors and disable raw mode anyway
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

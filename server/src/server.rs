@@ -1,13 +1,10 @@
-use std::io::Write;
-
-use chrono::Local;
+use chrono::{Local, Utc};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{
         tcp::{ReadHalf, WriteHalf},
         TcpListener,
     },
-    // signal::unix::{signal, SignalKind},
     sync::broadcast,
 };
 
@@ -36,7 +33,6 @@ impl Server {
         let (sender, _) = broadcast::channel(MAX_CONNECTIONS);
         loop {
             let (mut client_socket, _) = self.listener.accept().await.unwrap();
-            println!("NEW CONNECTION");
             let sender = sender.clone();
             let mut receiver = sender.subscribe();
 
@@ -46,7 +42,6 @@ impl Server {
 
                 let (reader, mut writer) = client_socket.split();
                 let mut reader = BufReader::new(reader);
-                let mut line = String::new();
                 let username = validate_username(&mut reader, &mut writer).await;
 
                 print!(
@@ -61,9 +56,10 @@ impl Server {
                 // between the moment when the client has connected and has
                 // not yet entered a nickname, all messages on the server are
                 // stored and transmitted to the client after entering the nickname
+                let mut data = String::new();
                 loop {
                     tokio::select! {
-                        result = reader.read_line(&mut line) => {
+                        result = reader.read_line(&mut data) => {
                             match result {
                                 Ok(0) => {
                                     let disc_msg =
@@ -76,9 +72,10 @@ impl Server {
                                     print!("[{}] [{}] {}",
                                         Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                                         username,
-                                        line);
-                                    sender.send((format!(" {}", line), Some(client_addr))).unwrap();
-                                    line.clear();
+                                        data);
+                                    let json_data = to_json_string(username.clone(), data.clone());
+                                    sender.send((format!("{}\n", json_data), Some(client_addr))).unwrap();
+                                    data.clear();
                                 }
                                 // TODO: Add the lost connection error handling
                                 Err(_) => {
@@ -136,4 +133,9 @@ async fn validate_username(
         }
         return username;
     }
+}
+
+fn to_json_string(username: String, data: String) -> String {
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
+    serde_json::json!({"username": username, "data": data, "date": now }).to_string()
 }
