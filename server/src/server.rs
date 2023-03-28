@@ -1,20 +1,18 @@
-use std::io::Write;
-
-use chrono::Local;
+use chrono::{Local, Utc};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{
         tcp::{ReadHalf, WriteHalf},
         TcpListener,
     },
-    // signal::unix::{signal, SignalKind},
     sync::broadcast,
 };
 
 const MAX_CONNECTIONS: usize = 10;
 const SERVER_ADDRESS: &str = "localhost:8080";
-const CONNECTION_MESSAGE: &str = "[NEW CONNECTION] user has been connected to the server\n";
-const DISCONNECTION_MESSAGE: &str = "[DISCONNECTION] user has been disconnected from the server\n";
+const CONNECTION_MESSAGE: &str = "user has been connected to the server\n";
+const DISCONNECTION_MESSAGE: &str = "user has been disconnected from the server\n";
+const SERVER_USERNAME: &str = "SERVER";
 
 pub struct Server {
     listener: TcpListener,
@@ -36,7 +34,6 @@ impl Server {
         let (sender, _) = broadcast::channel(MAX_CONNECTIONS);
         loop {
             let (mut client_socket, _) = self.listener.accept().await.unwrap();
-            println!("NEW CONNECTION");
             let sender = sender.clone();
             let mut receiver = sender.subscribe();
 
@@ -46,12 +43,11 @@ impl Server {
 
                 let (reader, mut writer) = client_socket.split();
                 let mut reader = BufReader::new(reader);
-                let mut line = String::new();
                 let username = validate_username(&mut reader, &mut writer).await;
 
                 print!(
                     "[{}] {}",
-                    Local::now(),
+                    Local::now().format("%Y-%m-%d %H:%M:%S"),
                     CONNECTION_MESSAGE.replace("user", &username.clone())
                 );
                 // TODO: Send connection message to all other clients. It will
@@ -61,26 +57,30 @@ impl Server {
                 // between the moment when the client has connected and has
                 // not yet entered a nickname, all messages on the server are
                 // stored and transmitted to the client after entering the nickname
+                let mut data = String::new();
                 loop {
                     tokio::select! {
-                        result = reader.read_line(&mut line) => {
+                        result = reader.read_line(&mut data) => {
+                            let now = Local::now().format("%Y-%m-%d %H:%M:%S");
                             match result {
                                 Ok(0) => {
                                     let disc_msg =
                                         DISCONNECTION_MESSAGE.replace("user", &username.clone());
-                                    print!{"{}", disc_msg.clone()};
-                                    sender.send((disc_msg.clone(), Some(client_addr))).unwrap();
+                                    print!{"[{}] {}", now, disc_msg};
+                                    let json_data = to_json_string(SERVER_USERNAME.to_string(), disc_msg);
+                                    sender.send((format!("{}\n", json_data), Some(client_addr))).unwrap();
                                     break;
                                 }
                                 Ok(_) => {
                                     print!("[{}] [{}] {}",
-                                        Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                        now,
                                         username,
-                                        line);
-                                    sender.send((format!(" {}", line), Some(client_addr))).unwrap();
-                                    line.clear();
+                                        data);
+                                    let json_data = to_json_string(username.clone(), data.clone());
+                                    sender.send((format!("{}\n", json_data), Some(client_addr))).unwrap();
+                                    data.clear();
                                 }
-                                // TODO: Add the lost connection error handling
+                                // TODO: Add the lost connection error handling (look for ConnectionResetError)
                                 Err(_) => {
                                     eprintln!("[ERROR] Stream did not contain valid UTF-8 data");
                                     break;
@@ -92,11 +92,11 @@ impl Server {
                             match sender_addr {
                                 Some(sender_addr) => {
                                     if client_addr != sender_addr {
-                                        writer.write_all(&msg.as_bytes()).await.unwrap();
+                                        writer.write_all(msg.as_bytes()).await.unwrap();
                                     }
                                 }
                                 None => {
-                                    writer.write_all(&msg.as_bytes()).await.unwrap();
+                                    writer.write_all(msg.as_bytes()).await.unwrap();
                                 }
                             }
 
@@ -136,4 +136,9 @@ async fn validate_username(
         }
         return username;
     }
+}
+
+fn to_json_string(username: String, data: String) -> String {
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
+    serde_json::json!({"username": username, "data": data, "date": now }).to_string()
 }

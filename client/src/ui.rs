@@ -1,5 +1,7 @@
+use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event, EventStream, KeyCode};
 use futures::{FutureExt, StreamExt};
+use serde_json::Value;
 use std::io;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -34,6 +36,7 @@ impl Default for App {
             input: String::new(),
             input_mode: InputMode::Insert,
             messages: Vec::new(),
+            // TODO: Implement Status enum with NotConnected & LoggingIn & LoggedIn fields? Should be idiomatic I guess
             logged_in: false,
         }
     }
@@ -55,26 +58,24 @@ pub async fn run_app<B: Backend>(
         let event = event_reader.next().fuse();
         tokio::select! {
             received_data = stream_reader.read_line(&mut data) => {
+                // TODO: Refactor this code
                 if received_data.unwrap() == 0 {
-                    // TODO: implement this feature, working but not like i want it to
                     app.messages.push("[SERVER] Server is shutting down, app will be closed in 10 seconds".to_string());
                     return Ok(());
                 }
-                if !app.logged_in {
-                    if data.trim() == "Ok" {
-                        app.logged_in = true;
-                    } else {
-                        todo!("Need to implement error displaying");
-                    }
+                if app.logged_in {
+                    app.messages.push(from_json_string(&data));
+                } else if data.trim() == "Ok" {
+                    app.logged_in = true;
                 } else {
-                    app.messages.push(data.to_string());
+                    todo!("Need to implement error displaying");
                 }
                 data.clear();
             }
             result = rx.recv() => {
                 let msg = result.unwrap();
                 writer
-                    .write_all(&format!("{}\n", msg.trim()).as_bytes())
+                    .write_all(format!("{}\n", msg.trim()).as_bytes())
                     .await
                     // TODO: Change this
                     .expect("Failed");
@@ -101,8 +102,10 @@ pub async fn run_app<B: Backend>(
                                     }
                                 }
                                 if app.logged_in {
-                                    app.messages.push(app.input.drain(..).collect());
+                                    let message: String = app.input.drain(..).collect();
+                                    app.messages.push(message);
                                 }
+                                app.input.clear()
                             }
                             KeyCode::Char(c) => {
                                 app.input.push(c);
@@ -200,6 +203,36 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             InputMode::Insert => f.set_cursor(area.x + app.input.width() as u16 + 1, area.y + 1),
         }
     }
+}
+
+// TODO: Handle server messages
+fn from_json_string(json_string: &str) -> String {
+    let json_data: Value = serde_json::from_str(json_string).unwrap();
+    let utc_date: DateTime<Utc> =
+        DateTime::parse_from_str(json_data["date"].as_str().unwrap(), "%Y-%m-%d %H:%M:%S %z")
+            .unwrap()
+            .into();
+    let local_date: DateTime<Local> = DateTime::from(utc_date);
+    // format!(
+    // "[{}] [{}] {}",
+    // local_date.format("%Y-%m-%d %H:%M:%S"),
+    // json_data["username"].as_str().unwrap(),
+    // json_data["data"].as_str().unwrap().trim()
+    // )
+    format_message(
+        local_date,
+        json_data["username"].as_str().unwrap(),
+        json_data["data"].as_str().unwrap(),
+    )
+}
+
+fn format_message(now: DateTime<Local>, username: &str, data: &str) -> String {
+    format!(
+        "[{}] [{}] {}",
+        now.format("%Y-%m-%d %H:%M:%S"),
+        username,
+        data.trim()
+    )
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
