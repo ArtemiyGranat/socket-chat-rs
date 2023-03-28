@@ -1,3 +1,4 @@
+use crate::client::{run_app, Client};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -23,8 +24,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let app = ui::Client::default();
-    let res = ui::run_app(&mut terminal, app, &mut socket).await;
+    let app = Client::default();
+    let res = run_app(&mut terminal, app, &mut socket).await;
 
     // TODO: Handle the errors and disable raw mode anyway
     disable_raw_mode()?;
