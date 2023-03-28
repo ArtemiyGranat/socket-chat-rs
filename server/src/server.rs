@@ -15,6 +15,7 @@ const CONNECTION_MESSAGE: &str = "User has been connected to the server\n";
 const DISCONNECTION_MESSAGE: &str = "User has been disconnected from the server\n";
 // const SERVER_USERNAME: &str = "SERVER";
 
+// TODO: Implement another macro for a system messages?
 macro_rules! print_message {
     ($username:expr, $data:expr) => {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S");
@@ -70,8 +71,8 @@ impl Server {
 
                 loop {
                     tokio::select! {
-                        result = reader.read_line(&mut data) => {
-                            match result {
+                        received_data_size = reader.read_line(&mut data) => {
+                            match received_data_size {
                                 Ok(0) => {
                                     print_message!(&username, DISCONNECTION_MESSAGE);
                                     let json_data = to_json_string(username, DISCONNECTION_MESSAGE.to_string());
@@ -92,16 +93,16 @@ impl Server {
                                 },
                             }
                         }
-                        result = receiver.recv() => {
-                            let (msg, sender_addr) = result.unwrap();
+                        message_to_send = receiver.recv() => {
+                            let (message, sender_addr) = message_to_send.unwrap();
                             match sender_addr {
                                 Some(sender_addr) => {
                                     if client_addr != sender_addr {
-                                        writer.write_all(msg.as_bytes()).await.unwrap();
+                                        writer.write_all(message.as_bytes()).await.unwrap();
                                     }
                                 }
                                 None => {
-                                    writer.write_all(msg.as_bytes()).await.unwrap();
+                                    writer.write_all(message.as_bytes()).await.unwrap();
                                 }
                             }
 

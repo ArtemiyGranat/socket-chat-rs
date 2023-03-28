@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let app = ui::App::default();
+    let app = ui::Client::default();
     let res = ui::run_app(&mut terminal, app, &mut socket).await;
 
     // TODO: Handle the errors and disable raw mode anyway

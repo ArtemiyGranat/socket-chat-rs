@@ -1,13 +1,13 @@
 use crate::client::ClientState;
 use chrono::{DateTime, Local, Utc};
-use crossterm::event::{Event, EventStream, KeyCode};
+use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
 use futures::{FutureExt, StreamExt};
 use serde_json::Value;
 use std::io;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
-    sync::mpsc,
+    sync::mpsc::{self, Sender},
 };
 use tui::{
     backend::Backend,
@@ -19,6 +19,7 @@ use tui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+// ui func
 macro_rules! format_message {
     ($now:expr, $username:expr, $data:expr) => {
         format!(
@@ -30,21 +31,23 @@ macro_rules! format_message {
     };
 }
 
+// client func
 enum InputMode {
     Normal,
     Insert,
 }
 
-pub struct App {
+// client func
+pub struct Client {
     input: String,
     input_mode: InputMode,
     messages: Vec<String>,
     client_state: ClientState,
 }
 
-impl Default for App {
-    fn default() -> App {
-        App {
+impl Default for Client {
+    fn default() -> Client {
+        Client {
             input: String::new(),
             input_mode: InputMode::Insert,
             messages: Vec::new(),
@@ -53,9 +56,10 @@ impl Default for App {
     }
 }
 
+// client func
 pub async fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
-    mut app: App,
+    mut app: Client,
     socket: &mut TcpStream,
 ) -> io::Result<()> {
     let mut event_reader = EventStream::new();
@@ -68,18 +72,21 @@ pub async fn run_app<B: Backend>(
         terminal.draw(|f| ui(f, &app))?;
         let event = event_reader.next().fuse();
         tokio::select! {
-            received_data = stream_reader.read_line(&mut data) => {
-                // TODO: Refactor this code
-                if received_data.unwrap() == 0 {
+            received_data_size = stream_reader.read_line(&mut data) => {
+                if let Ok(0) = received_data_size {
                     app.messages.push("[SERVER] Server is shutting down, app will be closed in 10 seconds".to_string());
                     return Ok(());
                 }
-                if let ClientState::LoggedIn = app.client_state {
-                    app.messages.push(from_json_string(&data));
-                } else if data.trim() == "Ok" {
-                    app.client_state = ClientState::LoggedIn;
-                } else {
-                    todo!("Need to implement error displaying");
+                match app.client_state {
+                    ClientState::LoggedIn => {
+                        app.messages.push(from_json_string(&data));
+                    }
+                    ClientState::LoggingIn if data.trim() == "Ok" => {
+                        app.client_state = ClientState::LoggedIn;
+                    }
+                    _ => {
+                        todo!("Need to implement error displaying");
+                    }
                 }
                 data.clear();
             }
@@ -103,32 +110,7 @@ pub async fn run_app<B: Backend>(
                             }
                             _ => {}
                         },
-                        InputMode::Insert => match key.code {
-                            KeyCode::Enter => {
-                                match tx.send(app.input.clone()).await {
-                                    Ok(_) => (),
-                                    // TODO: Change this
-                                    Err(_) => {
-                                        app.messages.push("Fail".to_string());
-                                    }
-                                }
-                                if let ClientState::LoggedIn = app.client_state {
-                                    let message: String = app.input.drain(..).collect();
-                                    app.messages.push(message);
-                                }
-                                app.input.clear()
-                            }
-                            KeyCode::Char(c) => {
-                                app.input.push(c);
-                            }
-                            KeyCode::Backspace => {
-                                app.input.pop();
-                            }
-                            KeyCode::Esc => {
-                                app.input_mode = InputMode::Normal;
-                            }
-                            _ => {}
-                        },
+                        InputMode::Insert => { handle_insert_mode(&mut app, key, &tx).await; }
                     }
                 }
             }
@@ -136,7 +118,52 @@ pub async fn run_app<B: Backend>(
     }
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
+// ui func
+fn _handle_normal_mode(app: &mut Client, key: KeyEvent) {
+    match key.code {
+        KeyCode::Char('i') => {
+            app.input_mode = InputMode::Insert;
+        }
+        KeyCode::Char('q') => {
+            // TODO: How to return q option?
+            // std::process::exit(0)
+        }
+        _ => {}
+    }
+}
+
+// ui func
+async fn handle_insert_mode(app: &mut Client, key: KeyEvent, tx: &Sender<String>) {
+    match key.code {
+        KeyCode::Enter => {
+            match tx.send(app.input.clone()).await {
+                Ok(_) => (),
+                // TODO: Change this
+                Err(_) => {
+                    app.messages.push("Fail".to_string());
+                }
+            }
+            if let ClientState::LoggedIn = app.client_state {
+                let message: String = app.input.drain(..).collect();
+                app.messages.push(message);
+            }
+            app.input.clear()
+        }
+        KeyCode::Char(c) => {
+            app.input.push(c);
+        }
+        KeyCode::Backspace => {
+            app.input.pop();
+        }
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+        }
+        _ => {}
+    }
+}
+
+// ui func
+fn ui<B: Backend>(f: &mut Frame<B>, app: &Client) {
     if let ClientState::LoggedIn = app.client_state {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -216,6 +243,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     }
 }
 
+// client func
 // TODO: Handle server messages
 fn from_json_string(json_string: &str) -> String {
     let json_data: Value = serde_json::from_str(json_string).unwrap();
@@ -231,6 +259,7 @@ fn from_json_string(json_string: &str) -> String {
     )
 }
 
+// client func
 // TODO: Changes this rectangle
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
