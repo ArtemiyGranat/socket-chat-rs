@@ -102,7 +102,8 @@ pub async fn run_app<B: Backend>(
                                     }
                                 }
                                 if app.logged_in {
-                                    app.messages.push(app.input.drain(..).collect());
+                                    let message: String = app.input.drain(..).collect();
+                                    app.messages.push(message);
                                 }
                                 app.input.clear()
                             }
@@ -212,11 +213,25 @@ fn from_json_string(json_string: &str) -> String {
             .unwrap()
             .into();
     let local_date: DateTime<Local> = DateTime::from(utc_date);
+    // format!(
+    // "[{}] [{}] {}",
+    // local_date.format("%Y-%m-%d %H:%M:%S"),
+    // json_data["username"].as_str().unwrap(),
+    // json_data["data"].as_str().unwrap().trim()
+    // )
+    format_message(
+        local_date,
+        json_data["username"].as_str().unwrap(),
+        json_data["data"].as_str().unwrap(),
+    )
+}
+
+fn format_message(now: DateTime<Local>, username: &str, data: &str) -> String {
     format!(
         "[{}] [{}] {}",
-        local_date.format("%Y-%m-%d %H:%M:%S"),
-        json_data["username"].as_str().unwrap(),
-        json_data["data"].as_str().unwrap().trim()
+        now.format("%Y-%m-%d %H:%M:%S"),
+        username,
+        data.trim()
     )
 }
 

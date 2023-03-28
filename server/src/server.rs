@@ -10,8 +10,9 @@ use tokio::{
 
 const MAX_CONNECTIONS: usize = 10;
 const SERVER_ADDRESS: &str = "localhost:8080";
-const CONNECTION_MESSAGE: &str = "[NEW CONNECTION] user has been connected to the server\n";
-const DISCONNECTION_MESSAGE: &str = "[DISCONNECTION] user has been disconnected from the server\n";
+const CONNECTION_MESSAGE: &str = "user has been connected to the server\n";
+const DISCONNECTION_MESSAGE: &str = "user has been disconnected from the server\n";
+const SERVER_USERNAME: &str = "SERVER";
 
 pub struct Server {
     listener: TcpListener,
@@ -46,7 +47,7 @@ impl Server {
 
                 print!(
                     "[{}] {}",
-                    Local::now(),
+                    Local::now().format("%Y-%m-%d %H:%M:%S"),
                     CONNECTION_MESSAGE.replace("user", &username.clone())
                 );
                 // TODO: Send connection message to all other clients. It will
@@ -60,17 +61,19 @@ impl Server {
                 loop {
                     tokio::select! {
                         result = reader.read_line(&mut data) => {
+                            let now = Local::now().format("%Y-%m-%d %H:%M:%S");
                             match result {
                                 Ok(0) => {
                                     let disc_msg =
                                         DISCONNECTION_MESSAGE.replace("user", &username.clone());
-                                    print!{"{}", disc_msg};
-                                    sender.send((disc_msg, Some(client_addr))).unwrap();
+                                    print!{"[{}] {}", now, disc_msg};
+                                    let json_data = to_json_string(SERVER_USERNAME.to_string(), disc_msg);
+                                    sender.send((format!("{}\n", json_data), Some(client_addr))).unwrap();
                                     break;
                                 }
                                 Ok(_) => {
                                     print!("[{}] [{}] {}",
-                                        Local::now().format("%Y-%m-%d %H:%M:%S"),
+                                        now,
                                         username,
                                         data);
                                     let json_data = to_json_string(username.clone(), data.clone());
