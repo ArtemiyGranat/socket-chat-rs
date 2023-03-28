@@ -235,6 +235,8 @@ fn format_message(now: DateTime<Local>, username: &str, data: &str) -> String {
     )
 }
 
+
+// TODO: Changes this rectangle
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)

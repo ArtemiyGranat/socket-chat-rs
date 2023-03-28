@@ -1,8 +1,18 @@
+mod error;
 mod server;
+
 use server::*;
 
 #[tokio::main]
 async fn main() {
-    let mut server = Server::new().await;
-    server.run_server().await;
+    match Server::new().await {
+        Ok(mut server) => {
+            if let Err(e) = server.run_server().await {
+                eprintln!("[ERROR] {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("[ERROR] {}", e);
+        }
+    }
 }
