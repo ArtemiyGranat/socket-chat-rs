@@ -13,7 +13,7 @@ const MAX_CONNECTIONS: usize = 10;
 const SERVER_ADDRESS: &str = "localhost:8080";
 const CONNECTION_MESSAGE: &str = "User has been connected to the server\n";
 const DISCONNECTION_MESSAGE: &str = "User has been disconnected from the server\n";
-const SERVER_USERNAME: &str = "SERVER";
+// const SERVER_USERNAME: &str = "SERVER";
 
 macro_rules! print_message {
     ($username:expr, $data:expr) => {

@@ -7,6 +7,7 @@ use std::{error::Error, io};
 use tokio::net::TcpStream;
 use tui::{backend::CrosstermBackend, Terminal};
 
+mod client;
 mod ui;
 
 #[tokio::main]

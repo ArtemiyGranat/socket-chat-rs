@@ -1,3 +1,4 @@
+use crate::client::ClientState;
 use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event, EventStream, KeyCode};
 use futures::{FutureExt, StreamExt};
@@ -18,6 +19,17 @@ use tui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+macro_rules! format_message {
+    ($now:expr, $username:expr, $data:expr) => {
+        format!(
+            "[{}] [{}] {}",
+            $now.format("%Y-%m-%d %H:%M:%S"),
+            $username,
+            $data.trim()
+        )
+    };
+}
+
 enum InputMode {
     Normal,
     Insert,
@@ -27,7 +39,7 @@ pub struct App {
     input: String,
     input_mode: InputMode,
     messages: Vec<String>,
-    logged_in: bool,
+    client_state: ClientState,
 }
 
 impl Default for App {
@@ -36,8 +48,7 @@ impl Default for App {
             input: String::new(),
             input_mode: InputMode::Insert,
             messages: Vec::new(),
-            // TODO: Implement Status enum with NotConnected & LoggingIn & LoggedIn fields? Should be idiomatic I guess
-            logged_in: false,
+            client_state: ClientState::LoggingIn,
         }
     }
 }
@@ -63,10 +74,10 @@ pub async fn run_app<B: Backend>(
                     app.messages.push("[SERVER] Server is shutting down, app will be closed in 10 seconds".to_string());
                     return Ok(());
                 }
-                if app.logged_in {
+                if let ClientState::LoggedIn = app.client_state {
                     app.messages.push(from_json_string(&data));
                 } else if data.trim() == "Ok" {
-                    app.logged_in = true;
+                    app.client_state = ClientState::LoggedIn;
                 } else {
                     todo!("Need to implement error displaying");
                 }
@@ -101,7 +112,7 @@ pub async fn run_app<B: Backend>(
                                         app.messages.push("Fail".to_string());
                                     }
                                 }
-                                if app.logged_in {
+                                if let ClientState::LoggedIn = app.client_state {
                                     let message: String = app.input.drain(..).collect();
                                     app.messages.push(message);
                                 }
@@ -126,7 +137,7 @@ pub async fn run_app<B: Backend>(
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
-    if app.logged_in {
+    if let ClientState::LoggedIn = app.client_state {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(0)
@@ -196,7 +207,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                     .title(" Enter the username"),
             );
         let area = centered_rect(40, 10, f.size());
-        f.render_widget(Clear, area); //this clears out the background
+        f.render_widget(Clear, area);
         f.render_widget(block, area);
         match app.input_mode {
             InputMode::Normal => {}
@@ -213,28 +224,12 @@ fn from_json_string(json_string: &str) -> String {
             .unwrap()
             .into();
     let local_date: DateTime<Local> = DateTime::from(utc_date);
-    // format!(
-    // "[{}] [{}] {}",
-    // local_date.format("%Y-%m-%d %H:%M:%S"),
-    // json_data["username"].as_str().unwrap(),
-    // json_data["data"].as_str().unwrap().trim()
-    // )
-    format_message(
+    format_message!(
         local_date,
         json_data["username"].as_str().unwrap(),
-        json_data["data"].as_str().unwrap(),
+        json_data["data"].as_str().unwrap()
     )
 }
-
-fn format_message(now: DateTime<Local>, username: &str, data: &str) -> String {
-    format!(
-        "[{}] [{}] {}",
-        now.format("%Y-%m-%d %H:%M:%S"),
-        username,
-        data.trim()
-    )
-}
-
 
 // TODO: Changes this rectangle
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
