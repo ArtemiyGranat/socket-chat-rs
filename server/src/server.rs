@@ -64,13 +64,13 @@ impl Server {
                                 Ok(0) => {
                                     let disc_msg =
                                         DISCONNECTION_MESSAGE.replace("user", &username.clone());
-                                    print!{"{}", disc_msg.clone()};
-                                    sender.send((disc_msg.clone(), Some(client_addr))).unwrap();
+                                    print!{"{}", disc_msg};
+                                    sender.send((disc_msg, Some(client_addr))).unwrap();
                                     break;
                                 }
                                 Ok(_) => {
                                     print!("[{}] [{}] {}",
-                                        Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                        Local::now().format("%Y-%m-%d %H:%M:%S"),
                                         username,
                                         data);
                                     let json_data = to_json_string(username.clone(), data.clone());
@@ -89,11 +89,11 @@ impl Server {
                             match sender_addr {
                                 Some(sender_addr) => {
                                     if client_addr != sender_addr {
-                                        writer.write_all(&msg.as_bytes()).await.unwrap();
+                                        writer.write_all(msg.as_bytes()).await.unwrap();
                                     }
                                 }
                                 None => {
-                                    writer.write_all(&msg.as_bytes()).await.unwrap();
+                                    writer.write_all(msg.as_bytes()).await.unwrap();
                                 }
                             }
 

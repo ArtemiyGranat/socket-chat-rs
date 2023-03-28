@@ -65,19 +65,17 @@ pub async fn run_app<B: Backend>(
                 }
                 if app.logged_in {
                     app.messages.push(from_json_string(&data));
+                } else if data.trim() == "Ok" {
+                    app.logged_in = true;
                 } else {
-                    if data.trim() == "Ok" {
-                        app.logged_in = true;
-                    } else {
-                        todo!("Need to implement error displaying");
-                    }
+                    todo!("Need to implement error displaying");
                 }
                 data.clear();
             }
             result = rx.recv() => {
                 let msg = result.unwrap();
                 writer
-                    .write_all(&format!("{}\n", msg.trim()).as_bytes())
+                    .write_all(format!("{}\n", msg.trim()).as_bytes())
                     .await
                     // TODO: Change this
                     .expect("Failed");
@@ -216,7 +214,7 @@ fn from_json_string(json_string: &str) -> String {
     let local_date: DateTime<Local> = DateTime::from(utc_date);
     format!(
         "[{}] [{}] {}",
-        local_date.format("%Y-%m-%d %H:%M:%S").to_string(),
+        local_date.format("%Y-%m-%d %H:%M:%S"),
         json_data["username"].as_str().unwrap(),
         json_data["data"].as_str().unwrap().trim()
     )
