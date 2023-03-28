@@ -1,6 +1,6 @@
 use crate::{
     format_message,
-    ui::{handle_insert_mode, ui},
+    ui::{handle_insert_mode, draw_ui},
 };
 use chrono::{DateTime, Local, Utc};
 use crossterm::event::{Event, EventStream, KeyCode};
@@ -43,8 +43,7 @@ impl Default for Client {
     }
 }
 
-// client func
-pub(crate) async fn run_app<B: Backend>(
+pub(crate) async fn run_client<B: Backend>(
     terminal: &mut Terminal<B>,
     mut app: Client,
     socket: &mut TcpStream,
@@ -56,7 +55,7 @@ pub(crate) async fn run_app<B: Backend>(
     let mut data = String::new();
 
     loop {
-        terminal.draw(|f| ui(f, &app))?;
+        terminal.draw(|f| draw_ui(f, &mut app))?;
         let event = event_reader.next().fuse();
         tokio::select! {
             received_data_size = stream_reader.read_line(&mut data) => {

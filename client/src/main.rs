@@ -1,4 +1,4 @@
-use crate::client::{run_app, Client};
+use crate::client::{run_client, Client};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -15,7 +15,10 @@ mod ui;
 async fn main() -> Result<(), Box<dyn Error>> {
     let mut socket = match TcpStream::connect("localhost:8080").await {
         Ok(socket) => socket,
-        Err(_) => std::process::exit(1),
+        Err(_) => {
+            eprintln!("[ERROR] Server is offline. Try again later");
+            std::process::exit(1)
+        }
     };
 
     enable_raw_mode()?;
@@ -25,7 +28,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let app = Client::default();
-    let res = run_app(&mut terminal, app, &mut socket).await;
+    let res = run_client(&mut terminal, app, &mut socket).await;
 
     // TODO: Handle the errors and disable raw mode anyway
     disable_raw_mode()?;

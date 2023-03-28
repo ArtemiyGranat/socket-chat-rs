@@ -67,7 +67,7 @@ pub(crate) async fn handle_insert_mode(app: &mut Client, key: KeyEvent, tx: &Sen
     }
 }
 
-pub(crate) fn ui<B: Backend>(f: &mut Frame<B>, app: &Client) {
+pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &mut Client) {
     if let ClientState::LoggedIn = app.client_state {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -97,6 +97,8 @@ pub(crate) fn ui<B: Backend>(f: &mut Frame<B>, app: &Client) {
                 Style::default(),
             ),
         };
+        
+        // TODO: Colorize messages and errors here
         let messages: Vec<ListItem> = app
             .messages
             .iter()
@@ -107,6 +109,10 @@ pub(crate) fn ui<B: Backend>(f: &mut Frame<B>, app: &Client) {
             })
             .collect();
         let messages = List::new(messages).block(Block::default().borders(Borders::ALL).title(msg));
+        let messages_limit = chunks[0].height - 2;
+        if app.messages.len() > messages_limit as usize {
+            app.messages.remove(0);
+        }
         f.render_widget(messages, chunks[0]);
 
         let input = Paragraph::new(app.input.as_ref())
