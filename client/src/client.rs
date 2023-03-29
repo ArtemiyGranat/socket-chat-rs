@@ -34,8 +34,8 @@ pub(crate) struct Client {
 }
 
 impl Default for Client {
-    fn default() -> Client {
-        Client {
+    fn default() -> Self {
+        Self {
             username: String::new(),
             client_state: ClientState::LoggingIn,
             input: String::new(),
