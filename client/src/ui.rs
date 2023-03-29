@@ -156,7 +156,7 @@ pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &mut Client) {
                     .borders(Borders::ALL)
                     .title(" Enter the username"),
             );
-        let area = centered_rect(40, 10, f.size());
+        let area = centered_rect(50, 20, f.size());
         f.render_widget(Clear, area);
         f.render_widget(block, area);
         match app.input_mode {
@@ -166,7 +166,6 @@ pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &mut Client) {
     }
 }
 
-// TODO: Changes this rectangle
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
