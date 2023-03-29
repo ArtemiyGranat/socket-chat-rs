@@ -1,6 +1,8 @@
 use crate::client::ClientState;
 use crate::client::{Client, InputMode};
+use chrono::Local;
 use crossterm::event::{KeyCode, KeyEvent};
+use serde_json::json;
 use tokio::sync::mpsc::Sender;
 use tui::{
     backend::Backend,
@@ -11,19 +13,6 @@ use tui::{
     Frame,
 };
 use unicode_width::UnicodeWidthStr;
-
-// ui func
-#[macro_export]
-macro_rules! format_message {
-    ($now:expr, $username:expr, $data:expr) => {
-        format!(
-            "[{}] [{}] {}",
-            $now.format("%Y-%m-%d %H:%M:%S"),
-            $username,
-            $data.trim()
-        )
-    };
-}
 
 fn _handle_normal_mode(app: &mut Client, key: KeyEvent) {
     match key.code {
@@ -45,12 +34,19 @@ pub(crate) async fn handle_insert_mode(app: &mut Client, key: KeyEvent, tx: &Sen
                 Ok(_) => (),
                 // TODO: Change this
                 Err(_) => {
-                    app.messages.push("Fail".to_string());
+                    // TODO: Change to JSON value
+                    let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                    app.messages
+                        .push(json!({"username": "SERVER", "data": "Fail", "date": now }));
                 }
             }
+            let message: String = app.input.drain(..).collect();
             if let ClientState::LoggedIn = app.client_state {
-                let message: String = app.input.drain(..).collect();
-                app.messages.push(message);
+                let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                app.messages
+                    .push(json!({"username": app.username, "data": message, "date": now }));
+            } else {
+                app.username = message;
             }
             app.input.clear()
         }
@@ -97,18 +93,35 @@ pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &mut Client) {
                 Style::default(),
             ),
         };
-        
-        // TODO: Colorize messages and errors here
+
         let messages: Vec<ListItem> = app
             .messages
             .iter()
-            .enumerate()
-            .map(|(i, m)| {
-                let content = vec![Spans::from(Span::raw(format!("{}: {}", i, m)))];
+            .map(|json_data| {
+                let json_data = json_data.clone();
+                let date = json_data["date"].as_str().unwrap().to_string();
+                let username = json_data["username"].as_str().unwrap().to_string();
+                let data = json_data["data"].as_str().unwrap().to_string();
+                let content = vec![Spans::from(vec![
+                    Span::styled(
+                        format!("[{}] ", date),
+                        Style::default()
+                            .add_modifier(Modifier::BOLD)
+                            .fg(Color::Rgb(216, 222, 233)),
+                    ),
+                    Span::styled(
+                        format!("[{}] ", username),
+                        Style::default()
+                            .add_modifier(Modifier::BOLD)
+                            .fg(Color::Rgb(129, 161, 193)),
+                    ),
+                    Span::styled(data, Style::default().fg(Color::Rgb(216, 222, 233))),
+                ])];
                 ListItem::new(content)
             })
             .collect();
         let messages = List::new(messages).block(Block::default().borders(Borders::ALL).title(msg));
+
         let messages_limit = chunks[0].height - 2;
         if app.messages.len() > messages_limit as usize {
             app.messages.remove(0);
