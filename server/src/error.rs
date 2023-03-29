@@ -7,6 +7,6 @@ pub struct ServerError {
 
 impl fmt::Display for ServerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.message)
+        write!(f, "[ERROR] {}", self.message)
     }
 }

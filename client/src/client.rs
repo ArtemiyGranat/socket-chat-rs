@@ -19,6 +19,7 @@ pub(crate) enum ClientState {
     LoggedIn,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum InputMode {
     Normal,
     Insert,
