@@ -1,4 +1,4 @@
-use crate::client::{run_client, Client};
+use crate::client::Client;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(socket) => socket,
         Err(_) => {
             eprintln!("[ERROR] Server is offline. Try again later");
-            std::process::exit(1)
+            return Ok(());
         }
     };
 
@@ -27,8 +27,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let app = Client::default();
-    let res = run_client(&mut terminal, app, &mut socket).await;
+    let client = Client::default();
+    let res = client.run_client(&mut terminal, &mut socket).await;
 
     // TODO: Handle the errors and disable raw mode anyway
     disable_raw_mode()?;

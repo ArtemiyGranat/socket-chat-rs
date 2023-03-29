@@ -14,10 +14,10 @@ use tui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-fn _handle_normal_mode(app: &mut Client, key: KeyEvent) {
+fn _handle_normal_mode(client: &mut Client, key: KeyEvent) {
     match key.code {
         KeyCode::Char('i') => {
-            app.input_mode = InputMode::Insert;
+            client.input_mode = InputMode::Insert;
         }
         KeyCode::Char('q') => {
             // TODO: How to return q option?
@@ -27,63 +27,65 @@ fn _handle_normal_mode(app: &mut Client, key: KeyEvent) {
     }
 }
 
-pub(crate) async fn handle_insert_mode(app: &mut Client, key: KeyEvent, tx: &Sender<String>) {
+pub(crate) async fn handle_insert_mode(client: &mut Client, key: KeyEvent, tx: &Sender<String>) {
     match key.code {
         KeyCode::Enter => {
-            match tx.send(app.input.clone()).await {
+            match tx.send(client.input.clone()).await {
                 Ok(_) => (),
                 // TODO: Change the error message
                 Err(_) => {
-                    let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                    app.messages
+                    let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
+                    client
+                        .messages
                         .push(json!({"username": "SERVER", "data": "Fail", "date": now }));
                 }
             }
-            let message: String = app.input.drain(..).collect();
-            if let ClientState::LoggedIn = app.client_state {
-                let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                app.messages
-                    .push(json!({"username": app.username, "data": message, "date": now }));
+            let message: String = client.input.drain(..).collect();
+            if let ClientState::LoggedIn = client.client_state {
+                let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
+                client
+                    .messages
+                    .push(json!({"username": client.username, "data": message, "date": now }));
             } else {
-                app.username = message;
+                client.username = message;
             }
-            app.input.clear()
+            client.input.clear()
         }
         KeyCode::Char(c) => {
-            app.input.push(c);
+            client.input.push(c);
         }
         KeyCode::Backspace => {
-            app.input.pop();
+            client.input.pop();
         }
         KeyCode::Esc => {
-            app.input_mode = InputMode::Normal;
+            client.input_mode = InputMode::Normal;
         }
         _ => {}
     }
 }
 
-pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &mut Client) {
-    if let ClientState::LoggedIn = app.client_state {
+pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
+    if let ClientState::LoggedIn = client.client_state {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(0)
             .constraints([Constraint::Percentage(90), Constraint::Percentage(10)].as_ref())
             .split(f.size());
 
-        let help_message = generate_help_message(&app.input_mode);
+        let help_message = generate_help_message(&client.input_mode);
 
-        let messages = app.messages.clone();
-        let messages =
-            List::new(generate_messages(&messages)).block(Block::default().borders(Borders::ALL).title(help_message));
+        let messages = client.messages.clone();
+        let messages = List::new(generate_messages(&messages))
+            .block(Block::default().borders(Borders::ALL).title(help_message));
 
         let messages_limit = chunks[0].height - 2;
-        if app.messages.len() > messages_limit as usize {
-            app.messages.remove(0);
+        if client.messages.len() > messages_limit as usize {
+            client.messages.remove(0);
         }
         f.render_widget(messages, chunks[0]);
 
-        let input = Paragraph::new(app.input.as_ref())
-            .style(match app.input_mode {
+        let input = Paragraph::new(client.input.as_ref())
+            .style(match client.input_mode {
                 InputMode::Normal => Style::default(),
                 InputMode::Insert => Style::default().fg(Color::Yellow),
             })
@@ -93,15 +95,16 @@ pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &mut Client) {
                     .title(" Enter the message"),
             );
         f.render_widget(input, chunks[1]);
-        match app.input_mode {
+        match client.input_mode {
             InputMode::Normal => {}
-            InputMode::Insert => {
-                f.set_cursor(chunks[1].x + app.input.width() as u16 + 1, chunks[1].y + 1)
-            }
+            InputMode::Insert => f.set_cursor(
+                chunks[1].x + client.input.width() as u16 + 1,
+                chunks[1].y + 1,
+            ),
         }
     } else {
-        let block = Paragraph::new(app.input.as_ref())
-            .style(match app.input_mode {
+        let block = Paragraph::new(client.input.as_ref())
+            .style(match client.input_mode {
                 InputMode::Normal => Style::default(),
                 InputMode::Insert => Style::default().fg(Color::Yellow),
             })
@@ -113,9 +116,9 @@ pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &mut Client) {
         let area = centered_rect(50, 20, f.size());
         f.render_widget(Clear, area);
         f.render_widget(block, area);
-        match app.input_mode {
+        match client.input_mode {
             InputMode::Normal => {}
-            InputMode::Insert => f.set_cursor(area.x + app.input.width() as u16 + 1, area.y + 1),
+            InputMode::Insert => f.set_cursor(area.x + client.input.width() as u16 + 1, area.y + 1),
         }
     }
 }
