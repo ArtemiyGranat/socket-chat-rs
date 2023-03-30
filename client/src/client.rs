@@ -1,5 +1,5 @@
-use crate::ui::{draw_ui, handle_insert_mode};
-use chrono::{DateTime, Local, FixedOffset};
+use crate::ui::draw_ui;
+use chrono::{DateTime, FixedOffset, Local};
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
 use futures::{FutureExt, StreamExt};
 use serde_json::{json, Value};
@@ -33,6 +33,12 @@ pub(crate) struct Client {
     pub messages: Vec<Value>,
 }
 
+#[derive(Debug)]
+enum Command {
+    Exit,
+    SendMessage(String),
+}
+
 impl Default for Client {
     fn default() -> Self {
         Self {
@@ -54,7 +60,7 @@ impl Client {
         let mut event_reader = EventStream::new();
         let (stream_reader, mut writer) = socket.split();
         let mut stream_reader = BufReader::new(stream_reader);
-        let (sender, mut receiver) = mpsc::channel::<String>(1);
+        let (sender, mut receiver) = mpsc::channel::<Command>(1);
         let mut data = String::new();
 
         loop {
@@ -63,36 +69,26 @@ impl Client {
                 outgoing_data_size = stream_reader.read_line(&mut data) => {
                     if let Ok(0) = outgoing_data_size {
                         self.handle_server_shutdown();
-                        return Ok(());
+                        break Ok(())
                     }
                     self.handle_outgoing_data(&data);
                     data.clear();
                 }
                 result = receiver.recv() => {
-                    let data = result.unwrap();
-                    writer
-                        .write_all(format!("{}\n", data.trim()).as_bytes())
-                        .await
-                        // TODO: Change this
-                        .expect("Failed");
+                    let command = result.unwrap();
+                    match command {
+                        Command::SendMessage(data) => {
+                            writer
+                                .write_all(format!("{}\n", data.trim()).as_bytes())
+                                .await
+                                .unwrap();
+                        },
+                        Command::Exit => break Ok(()),
                     }
+                }
                 result = event_reader.next().fuse() => {
                     if let Ok(Event::Key(key)) = result.unwrap() {
-                        // TODO: Find a way to exit a client inside handle_input_event method
-                        match self.input_mode {
-                            InputMode::Normal => match key.code {
-                                KeyCode::Char('i') => {
-                                    self.input_mode = InputMode::Insert;
-                                }
-                                KeyCode::Char('q') => {
-                                    return Ok(());
-                                }
-                                _ => {}
-                            },
-                            InputMode::Insert => {
-                                handle_insert_mode(&mut self, key, &sender).await;
-                            }
-                        }
+                        self.handle_input_event(key, &sender).await;
                     }
                 }
             }
@@ -120,24 +116,58 @@ impl Client {
         }
     }
 
-    async fn _handle_input_event(&mut self, key: KeyEvent, sender: &Sender<String>) {
+    async fn handle_input_event(&mut self, key: KeyEvent, sender: &Sender<Command>) {
         match self.input_mode {
-            InputMode::Normal => match key.code {
-                KeyCode::Char('i') => {
-                    self.input_mode = InputMode::Insert;
-                }
-                KeyCode::Char('q') => {
-                    // TODO: How to exit a client from this method?
-                }
-                _ => {}
-            },
+            InputMode::Normal => {
+                self.handle_normal_mode(key, sender).await;
+            }
             InputMode::Insert => {
-                handle_insert_mode(self, key, sender).await;
+                self.handle_insert_mode(key, sender).await;
             }
         }
     }
-}
 
+    async fn handle_normal_mode(&mut self, key: KeyEvent, sender: &Sender<Command>) {
+        match key.code {
+            KeyCode::Char('i') => {
+                self.input_mode = InputMode::Insert;
+            }
+            KeyCode::Char('q') => {
+                sender.send(Command::Exit).await.unwrap();
+            }
+            _ => {}
+        }
+    }
+
+    async fn handle_insert_mode(&mut self, key: KeyEvent, sender: &Sender<Command>) {
+        match key.code {
+            KeyCode::Enter => {
+                sender.send(Command::SendMessage(self.input.clone()))
+                    .await
+                    .unwrap();
+                let message: String = self.input.drain(..).collect();
+                if let ClientState::LoggedIn = self.client_state {
+                    let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
+                    self.messages
+                        .push(json!({"username": self.username, "data": message, "date": now }));
+                } else {
+                    self.username = message;
+                }
+                self.input.clear()
+            }
+            KeyCode::Char(c) => {
+                self.input.push(c);
+            }
+            KeyCode::Backspace => {
+                self.input.pop();
+            }
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+            }
+            _ => {}
+        }
+    }
+}
 
 // TODO: Handle server messages
 fn from_json_string(json_string: &str) -> Value {
@@ -146,7 +176,7 @@ fn from_json_string(json_string: &str) -> Value {
         DateTime::parse_from_str(json_data["date"].as_str().unwrap(), "%Y-%m-%d %H:%M:%S %z")
             .unwrap();
     let local_date: DateTime<Local> = utc_date.into();
-    
+
     json_data["date"] = json!(local_date.format("%d-%m-%Y %H:%M").to_string());
     json_data
 }

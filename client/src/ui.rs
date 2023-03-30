@@ -1,9 +1,6 @@
 use crate::client::ClientState;
 use crate::client::{Client, InputMode};
-use chrono::Local;
-use crossterm::event::{KeyCode, KeyEvent};
-use serde_json::{json, Value};
-use tokio::sync::mpsc::Sender;
+use serde_json::Value;
 use tui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -13,56 +10,6 @@ use tui::{
     Frame,
 };
 use unicode_width::UnicodeWidthStr;
-
-fn _handle_normal_mode(client: &mut Client, key: KeyEvent) {
-    match key.code {
-        KeyCode::Char('i') => {
-            client.input_mode = InputMode::Insert;
-        }
-        KeyCode::Char('q') => {
-            // TODO: How to return q option?
-            // std::process::exit(0)
-        }
-        _ => {}
-    }
-}
-
-pub(crate) async fn handle_insert_mode(client: &mut Client, key: KeyEvent, tx: &Sender<String>) {
-    match key.code {
-        KeyCode::Enter => {
-            match tx.send(client.input.clone()).await {
-                Ok(_) => (),
-                // TODO: Change the error message
-                Err(_) => {
-                    let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
-                    client
-                        .messages
-                        .push(json!({"username": "SERVER", "data": "Fail", "date": now }));
-                }
-            }
-            let message: String = client.input.drain(..).collect();
-            if let ClientState::LoggedIn = client.client_state {
-                let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
-                client
-                    .messages
-                    .push(json!({"username": client.username, "data": message, "date": now }));
-            } else {
-                client.username = message;
-            }
-            client.input.clear()
-        }
-        KeyCode::Char(c) => {
-            client.input.push(c);
-        }
-        KeyCode::Backspace => {
-            client.input.pop();
-        }
-        KeyCode::Esc => {
-            client.input_mode = InputMode::Normal;
-        }
-        _ => {}
-    }
-}
 
 pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     if let ClientState::LoggedIn = client.client_state {
