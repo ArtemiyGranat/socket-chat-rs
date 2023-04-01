@@ -9,7 +9,7 @@ use tokio::{
 };
 
 const MAX_CONNECTIONS: usize = 10;
-const SERVER_ADDRESS: &str = "localhost:8080";
+const SERVER_ADDRESS: &str = "0.0.0.0:8080";
 const CONNECTION_MESSAGE: &str = "user has been connected to the server\n";
 const DISCONNECTION_MESSAGE: &str = "user has been disconnected from the server\n";
 const SERVER_USERNAME: &str = "SERVER";
