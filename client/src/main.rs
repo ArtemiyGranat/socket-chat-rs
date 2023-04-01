@@ -1,3 +1,4 @@
+use crate::client::Client;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -7,13 +8,18 @@ use std::{error::Error, io};
 use tokio::net::TcpStream;
 use tui::{backend::CrosstermBackend, Terminal};
 
+mod client;
 mod ui;
 
+// TODO: Change the errors handling somehow
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let mut socket = match TcpStream::connect("localhost:8080").await {
         Ok(socket) => socket,
-        Err(_) => std::process::exit(1),
+        Err(_) => {
+            eprintln!("[ERROR] Server is offline. Try again later");
+            return Ok(());
+        }
     };
 
     enable_raw_mode()?;
@@ -22,8 +28,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let app = ui::App::default();
-    let res = ui::run_app(&mut terminal, app, &mut socket).await;
+    let client = Client::default();
+    if let Err(e) = client.run_client(&mut terminal, &mut socket).await {
+        eprintln!("[ERROR] {}", e);
+    }
 
     // TODO: Handle the errors and disable raw mode anyway
     disable_raw_mode()?;
@@ -33,10 +41,5 @@ async fn main() -> Result<(), Box<dyn Error>> {
         DisableMouseCapture
     )?;
     terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{:?}", err)
-    }
-
     Ok(())
 }

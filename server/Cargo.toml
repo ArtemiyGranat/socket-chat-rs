@@ -10,4 +10,3 @@ tokio = { version = "1", features = ["full"] }
 chrono = "0.4.23"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
-socket-chat-lib = { path = "../socket-chat-lib" }
