@@ -66,17 +66,16 @@ impl Client {
         loop {
             terminal.draw(|f| draw_ui(f, &mut self))?;
             tokio::select! {
-                outgoing_data_size = stream_reader.read_line(&mut data) => {
-                    if let Ok(0) = outgoing_data_size {
+                received_data_size = stream_reader.read_line(&mut data) => {
+                    if let Ok(0) = received_data_size {
                         self.handle_server_shutdown();
                         break Ok(())
                     }
-                    self.handle_outgoing_data(&data);
+                    self.handle_received_data(&data);
                     data.clear();
                 }
-                result = receiver.recv() => {
-                    let command = result.unwrap();
-                    match command {
+                command = receiver.recv() => {
+                    match command.unwrap() {
                         Command::SendMessage(data) => {
                             writer
                                 .write_all(format!("{}\n", data.trim()).as_bytes())
@@ -97,22 +96,33 @@ impl Client {
 
     fn handle_server_shutdown(&mut self) {
         let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
-        self.messages.push(serde_json::json!({"username": "SERVER", "data": SERVER_SHUTDOWN_MESSAGE, "date": now }));
+        self.messages.push(
+            serde_json::json!({"type": "message", "sender": "SERVER", "data": SERVER_SHUTDOWN_MESSAGE, "date": now }),
+        );
     }
 
-    fn handle_outgoing_data(&mut self, data: &str) {
-        match self.client_state {
-            ClientState::LoggedIn => {
-                self.messages.push(from_json_string(data));
+    fn handle_received_data(&mut self, data: &str) {
+        let json_data = from_json_string(data);
+        match json_data["type"].as_str() {
+            Some("message") => {
+                if let ClientState::LoggedIn = self.client_state {
+                    self.messages.push(json_data);
+                }
             }
-            ClientState::LoggingIn if data.trim() == "Ok" => {
-                self.client_state = ClientState::LoggedIn;
+            Some("response") => {
+                if let ClientState::LoggingIn = self.client_state {
+                    match json_data["data"].as_str() {
+                        Some("Ok") => {
+                            self.client_state = ClientState::LoggedIn;
+                        }
+                        Some("Error") => {
+                            self.username.clear();
+                        }
+                        _ => unreachable!("Wrong data {:?}", json_data),
+                    }
+                }
             }
-            _ => {
-                // if data.trim() == "Error"
-                self.username.clear();
-                todo!("Need to implement error displaying");
-            }
+            _ => unreachable!("Wrong type {:?}", json_data),
         }
     }
 
@@ -142,14 +152,17 @@ impl Client {
     async fn handle_insert_mode(&mut self, key: KeyEvent, sender: &Sender<Command>) {
         match key.code {
             KeyCode::Enter => {
-                sender.send(Command::SendMessage(self.input.clone()))
+                sender
+                    .send(Command::SendMessage(self.input.clone()))
                     .await
                     .unwrap();
                 let message: String = self.input.drain(..).collect();
                 if let ClientState::LoggedIn = self.client_state {
                     let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
-                    self.messages
-                        .push(json!({"username": self.username, "data": message, "date": now }));
+                    self.messages.push(json!({ "type": "message", 
+                                      "sender": self.username,
+                                      "data": message, 
+                                      "date": now }));
                 } else {
                     self.username = message;
                 }
@@ -169,7 +182,6 @@ impl Client {
     }
 }
 
-// TODO: Handle server messages
 fn from_json_string(json_string: &str) -> Value {
     let mut json_data: Value = serde_json::from_str(json_string).unwrap();
     let utc_date: DateTime<FixedOffset> =

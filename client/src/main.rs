@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let client = Client::default();
-    if let Err(e) =  client.run_client(&mut terminal, &mut socket).await {
+    if let Err(e) = client.run_client(&mut terminal, &mut socket).await {
         eprintln!("[ERROR] {}", e);
     }
 

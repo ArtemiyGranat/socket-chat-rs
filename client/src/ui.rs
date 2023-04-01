@@ -1,5 +1,4 @@
-use crate::client::ClientState;
-use crate::client::{Client, InputMode};
+use crate::client::{Client, ClientState, InputMode};
 use serde_json::Value;
 use tui::{
     backend::Backend,
@@ -13,6 +12,7 @@ use unicode_width::UnicodeWidthStr;
 
 pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     if let ClientState::LoggedIn = client.client_state {
+        // draw_chat?
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(0)
@@ -42,14 +42,9 @@ pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
                     .title(" Enter the message"),
             );
         f.render_widget(input, chunks[1]);
-        match client.input_mode {
-            InputMode::Normal => {}
-            InputMode::Insert => f.set_cursor(
-                chunks[1].x + client.input.width() as u16 + 1,
-                chunks[1].y + 1,
-            ),
-        }
+        set_cursor(f, client, chunks[1]);
     } else {
+        // draw_log_screen?
         let block = Paragraph::new(client.input.as_ref())
             .style(match client.input_mode {
                 InputMode::Normal => Style::default(),
@@ -63,10 +58,16 @@ pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
         let area = centered_rect(50, 20, f.size());
         f.render_widget(Clear, area);
         f.render_widget(block, area);
-        match client.input_mode {
-            InputMode::Normal => {}
-            InputMode::Insert => f.set_cursor(area.x + client.input.width() as u16 + 1, area.y + 1),
-        }
+        set_cursor(f, client, area);
+    }
+}
+
+fn set_cursor<B: Backend>(f: &mut Frame<B>, client: &mut Client, area: Rect) {
+    if let InputMode::Insert = client.input_mode {
+        f.set_cursor(
+            area.x + client.input.width() as u16 + 1,
+            area.y + 1,
+        );
     }
 }
 
@@ -121,7 +122,7 @@ fn generate_messages(messages: &[Value]) -> Vec<ListItem> {
         .map(|json_data| {
             let json_data = json_data.clone();
             let date = json_data["date"].as_str().unwrap().to_string();
-            let username = json_data["username"].as_str().unwrap().to_string();
+            let sender = json_data["sender"].as_str().unwrap().to_string();
             let data = json_data["data"].as_str().unwrap().to_string();
             let content = vec![Spans::from(vec![
                 Span::styled(
@@ -131,7 +132,7 @@ fn generate_messages(messages: &[Value]) -> Vec<ListItem> {
                         .fg(Color::Rgb(216, 222, 233)),
                 ),
                 Span::styled(
-                    format!("[{}] ", username),
+                    format!("[{}] ", sender),
                     Style::default()
                         .add_modifier(Modifier::BOLD)
                         .fg(Color::Rgb(129, 161, 193)),

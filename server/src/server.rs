@@ -60,8 +60,7 @@ impl Server {
                         return Err(ServerError { message: e.message });
                     }
                 };
-                // TODO: Send connection message to all other clients. It will
-                // be implemented after authentification system will be implemented.
+                // TODO: Send connection message to all other clients.
 
                 // TODO: Fix the issue
                 // between the moment when the client has connected and has
@@ -77,7 +76,7 @@ impl Server {
                                     print_message!(&username, DISCONNECTION_MESSAGE);
                                     let json_data = to_json_string(username, DISCONNECTION_MESSAGE.to_string());
                                     sender.send((format!("{}\n", json_data), Some(client_addr))).unwrap();
-                                    return Ok(());
+                                    break Ok(());
                                 }
                                 Ok(_) => {
                                     print_message!(username, data);
@@ -87,14 +86,14 @@ impl Server {
                                 }
                                 // TODO: Add the lost connection error handling (look for ConnectionResetError)
                                 Err(_) => {
-                                    return Err(ServerError {
+                                    break Err(ServerError {
                                         message: "Stream did not contain valid UTF-8 data".to_string()
                                     });
                                 },
                             }
                         }
-                        message_to_send = receiver.recv() => {
-                            let (message, sender_addr) = message_to_send.unwrap();
+                        outgoing_data = receiver.recv() => {
+                            let (message, sender_addr) = outgoing_data.unwrap();
                             match sender_addr {
                                 Some(sender_addr) => {
                                     if client_addr != sender_addr {
@@ -105,7 +104,6 @@ impl Server {
                                     writer.write_all(message.as_bytes()).await.unwrap();
                                 }
                             }
-
                         }
                     }
                 }
@@ -129,7 +127,7 @@ async fn validate_username(
         username = username.trim().to_string();
 
         let response = if username.is_empty() { "Error" } else { "Ok" };
-        if (writer.write_all(format!("{}\n", response).as_bytes()).await).is_err() {
+        if (writer.write_all(format!("{}\n", response_to_json_string(response)).as_bytes()).await).is_err() {
             return Err(ServerError {
                 message: "Client disconnected before entering username".to_string(),
             });
@@ -143,5 +141,10 @@ async fn validate_username(
 
 fn to_json_string(username: String, data: String) -> String {
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
-    serde_json::json!({"username": username, "data": data, "date": now }).to_string()
+    serde_json::json!({ "type": "message", "sender": username, "data": data, "date": now }).to_string()
+}
+
+fn response_to_json_string(response: &str) -> String {
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
+    serde_json::json!({ "type": "response", "data": response, "date": now }).to_string()
 }
