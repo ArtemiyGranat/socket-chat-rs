@@ -1,17 +1,16 @@
 use crate::config::Config;
 use crate::error::ServerError;
+use crate::{conn_message, disc_message};
 use chrono::{Local, Utc};
+use std::net::SocketAddr;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{
         tcp::{ReadHalf, WriteHalf},
-        TcpListener,
+        TcpListener, TcpStream,
     },
-    sync::broadcast,
+    sync::broadcast::{self, Sender},
 };
-
-const CONNECTION_MESSAGE: &str = "User has been connected to the server\n";
-const DISCONNECTION_MESSAGE: &str = "User has been disconnected from the server\n";
 
 // TODO: Implement another macro for a system messages?
 macro_rules! print_message {
@@ -21,96 +20,119 @@ macro_rules! print_message {
     };
 }
 
-pub struct Server {
-    listener: TcpListener,
-    config: Config,
+async fn init_server(config: &Config) -> Result<TcpListener, ServerError> {
+    match TcpListener::bind(config.server_address.clone()).await {
+        Ok(listener) => Ok(listener),
+        Err(_) => Err(ServerError {
+            message: "Could not bind the server to this address".to_string(),
+        }),
+    }
 }
 
-impl Server {
-    pub async fn new() -> Result<Self, ServerError> {
-        let config = Config::default();
-        match TcpListener::bind(config.server_address.clone()).await {
-            Ok(listener) => Ok(Self { listener, config }),
-            Err(_) => Err(ServerError {
-                message: "Could not bind the server to this address".to_string(),
-            }),
-        }
+pub async fn run_server(config: &Config) -> Result<(), ServerError> {
+    let listener = init_server(config).await?;
+    let (sender, _) = broadcast::channel(config.max_connections);
+    loop {
+        let config = config.clone();
+        let (client_socket, _) = listener.accept().await.unwrap();
+        let mut sender = sender.clone();
+
+        tokio::spawn(async move {
+            handle_client(&config, client_socket, &mut sender)
+                .await
+                .unwrap();
+        });
     }
+}
 
-    pub async fn run_server(self, config: &Config) -> Result<(), ServerError> {
-        let (sender, _) = broadcast::channel(config.max_connections);
-        loop {
-            let config = self.config.clone();
-            let (mut client_socket, _) = self.listener.accept().await.unwrap();
-            let sender = sender.clone();
-            let mut receiver = sender.subscribe();
+async fn handle_client(
+    config: &Config,
+    mut client_socket: TcpStream,
+    sender: &mut Sender<(String, Option<SocketAddr>)>,
+) -> Result<(), ServerError> {
+    let mut receiver = sender.subscribe();
+    let client_addr = client_socket.peer_addr().unwrap();
+    let (reader, mut writer) = client_socket.split();
+    let mut reader = BufReader::new(reader);
 
-            tokio::spawn(async move {
-                // TODO: Store only client_socket and get addr by a function
-                let client_addr = client_socket.peer_addr().unwrap();
+    let mut _conn_message = String::new();
+    let username = match validate_username(config, &mut reader, &mut writer).await {
+        Ok(username) => {
+            _conn_message = conn_message!(&username);
+            username
+        }
+        Err(e) => {
+            return Err(ServerError { message: e.message });
+        }
+    };
+    // TODO: Send connection message to all other clients (_conn_message should be used).
 
-                let (reader, mut writer) = client_socket.split();
-                let mut reader = BufReader::new(reader);
-
-                let username = match validate_username(&config, &mut reader, &mut writer).await {
-                    Ok(username) => {
-                        print_message!(&username, CONNECTION_MESSAGE);
-                        username
-                    }
-                    Err(e) => {
-                        return Err(ServerError { message: e.message });
-                    }
-                };
-                // TODO: Send connection message to all other clients.
-
-                // TODO: Fix the issue
-                // between the moment when the client has connected and has
-                // not yet entered a nickname, all messages on the server are
-                // stored and transmitted to the client after entering the nickname
-                let mut data = String::new();
-
-                loop {
-                    tokio::select! {
-                        received_data_size = reader.read_line(&mut data) => {
-                            match received_data_size {
-                                Ok(0) => {
-                                    print_message!(&username, DISCONNECTION_MESSAGE);
-                                    let json_data = to_json_string(username, DISCONNECTION_MESSAGE.to_string());
-                                    sender.send((format!("{}\n", json_data), Some(client_addr))).unwrap();
-                                    break Ok(());
-                                }
-                                Ok(_) => {
-                                    print_message!(username, data);
-                                    let json_data = to_json_string(username.clone(), data.clone());
-                                    sender.send((format!("{}\n", json_data), Some(client_addr))).unwrap();
-                                    data.clear();
-                                }
-                                // TODO: Add the lost connection error handling (look for ConnectionResetError)
-                                Err(_) => {
-                                    break Err(ServerError {
-                                        message: "Stream did not contain valid UTF-8 data".to_string()
-                                    });
-                                },
-                            }
+    let mut data = String::new();
+    loop {
+        tokio::select! {
+            received_data_size = reader.read_line(&mut data) => {
+                if let Ok(0) = received_data_size {
+                    let disc_message = disc_message!(&username);
+                    sender
+                        .send((
+                            format!("{}\n", response_to_json_string(&disc_message)),
+                            Some(client_addr),
+                        ))
+                        .unwrap();
+                    break Ok(())
+                }
+                handle_received_data(
+                    received_data_size,
+                    client_addr,
+                    username.clone(),
+                    &mut data,
+                    sender,
+                )
+                .await?;
+            }
+            outgoing_data = receiver.recv() => {
+                let (message, sender_addr) = outgoing_data.unwrap();
+                match sender_addr {
+                    Some(sender_addr) => {
+                        if client_addr != sender_addr {
+                            writer.write_all(message.as_bytes()).await.unwrap();
                         }
-                        outgoing_data = receiver.recv() => {
-                            let (message, sender_addr) = outgoing_data.unwrap();
-                            match sender_addr {
-                                Some(sender_addr) => {
-                                    if client_addr != sender_addr {
-                                        writer.write_all(message.as_bytes()).await.unwrap();
-                                    }
-                                }
-                                None => {
-                                    writer.write_all(message.as_bytes()).await.unwrap();
-                                }
-                            }
-                        }
+                    }
+                    None => {
+                        writer.write_all(message.as_bytes()).await.unwrap();
                     }
                 }
+            }
+        }
+    }
+}
+
+async fn handle_received_data(
+    size: Result<usize, std::io::Error>,
+    client_addr: SocketAddr,
+    username: String,
+    data: &mut String,
+    sender: &mut Sender<(String, Option<SocketAddr>)>,
+) -> Result<(), ServerError> {
+    match size {
+        Ok(_) => {
+            print_message!(username, data);
+            sender
+                .send((
+                    format!("{}\n", to_json_string(username, data.clone())),
+                    Some(client_addr),
+                ))
+                .unwrap();
+            data.clear();
+        }
+        // TODO: Add the lost connection error handling (look for ConnectionResetError)
+        Err(e) => {
+            return Err(ServerError {
+                message: e.to_string(), // message: "Stream did not contain valid UTF-8 data".to_string()
             });
         }
     }
+    Ok(())
 }
 
 //  TODO: Check for the other error cases
