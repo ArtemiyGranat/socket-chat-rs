@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::error::ServerError;
-use crate::{conn_message, disc_message};
+use crate::{conn_message, disc_message, print_message};
 use chrono::{Local, Utc};
 use std::net::SocketAddr;
 use tokio::{
@@ -11,14 +11,6 @@ use tokio::{
     },
     sync::broadcast::{self, Sender},
 };
-
-// TODO: Implement another macro for a system messages?
-macro_rules! print_message {
-    ($username:expr, $data:expr) => {
-        let now = Local::now().format("%Y-%m-%d %H:%M:%S");
-        print!("[{}] [{}] {}", now, $username, $data)
-    };
-}
 
 async fn init_server(config: &Config) -> Result<TcpListener, ServerError> {
     match TcpListener::bind(config.server_address.clone()).await {
@@ -55,16 +47,8 @@ async fn handle_client(
     let (reader, mut writer) = client_socket.split();
     let mut reader = BufReader::new(reader);
 
-    let mut _conn_message = String::new();
-    let username = match validate_username(config, &mut reader, &mut writer).await {
-        Ok(username) => {
-            _conn_message = conn_message!(&username);
-            username
-        }
-        Err(e) => {
-            return Err(ServerError { message: e.message });
-        }
-    };
+    let username = validate_username(config, &mut reader, &mut writer).await?;
+    let _conn_message = conn_message!(&username);
     // TODO: Send connection message to all other clients (_conn_message should be used).
 
     let mut data = String::new();
@@ -92,15 +76,12 @@ async fn handle_client(
             }
             outgoing_data = receiver.recv() => {
                 let (message, sender_addr) = outgoing_data.unwrap();
-                match sender_addr {
-                    Some(sender_addr) => {
-                        if client_addr != sender_addr {
-                            writer.write_all(message.as_bytes()).await.unwrap();
-                        }
-                    }
-                    None => {
+                if let Some(sender_addr) = sender_addr {
+                    if client_addr != sender_addr {
                         writer.write_all(message.as_bytes()).await.unwrap();
                     }
+                } else {
+                    writer.write_all(message.as_bytes()).await.unwrap();
                 }
             }
         }
@@ -114,28 +95,22 @@ async fn handle_received_data(
     data: &mut String,
     sender: &mut Sender<(String, Option<SocketAddr>)>,
 ) -> Result<(), ServerError> {
-    match size {
-        Ok(_) => {
-            print_message!(username, data);
-            sender
-                .send((
-                    format!("{}\n", to_json_string(username, data.clone())),
-                    Some(client_addr),
-                ))
-                .unwrap();
-            data.clear();
-        }
-        // TODO: Add the lost connection error handling (look for ConnectionResetError)
-        Err(e) => {
-            return Err(ServerError {
-                message: e.to_string(), // message: "Stream did not contain valid UTF-8 data".to_string()
-            });
-        }
+    if let Err(e) = size {
+        return Err(ServerError {
+            message: e.to_string(),
+        });
     }
+    print_message!(username, data);
+    sender
+        .send((
+            format!("{}\n", to_json_string(username, data.clone())),
+            Some(client_addr),
+        ))
+        .unwrap();
+    data.clear();
     Ok(())
 }
 
-//  TODO: Check for the other error cases
 async fn validate_username(
     config: &Config,
     reader: &mut BufReader<ReadHalf<'_>>,

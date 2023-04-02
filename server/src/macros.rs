@@ -24,4 +24,10 @@ macro_rules! disc_message {
     }};
 }
 
-
+#[macro_export]
+macro_rules! print_message {
+    ($username:expr, $data:expr) => {
+        let now = Local::now().format("%Y-%m-%d %H:%M:%S");
+        print!("[{}] [{}] {}", now, $username, $data)
+    };
+}
