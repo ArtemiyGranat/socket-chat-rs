@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::error::ServerError;
 use chrono::{Local, Utc};
 use tokio::{
@@ -9,11 +10,8 @@ use tokio::{
     sync::broadcast,
 };
 
-const MAX_CONNECTIONS: usize = 10;
-const SERVER_ADDRESS: &str = "localhost:8080";
 const CONNECTION_MESSAGE: &str = "User has been connected to the server\n";
 const DISCONNECTION_MESSAGE: &str = "User has been disconnected from the server\n";
-// const SERVER_USERNAME: &str = "SERVER";
 
 // TODO: Implement another macro for a system messages?
 macro_rules! print_message {
@@ -25,21 +23,24 @@ macro_rules! print_message {
 
 pub struct Server {
     listener: TcpListener,
+    config: Config,
 }
 
 impl Server {
     pub async fn new() -> Result<Self, ServerError> {
-        match TcpListener::bind(SERVER_ADDRESS).await {
-            Ok(listener) => Ok(Self { listener }),
+        let config = Config::default();
+        match TcpListener::bind(config.server_address.clone()).await {
+            Ok(listener) => Ok(Self { listener, config }),
             Err(_) => Err(ServerError {
                 message: "Could not bind the server to this address".to_string(),
             }),
         }
     }
 
-    pub async fn run_server(&mut self) -> Result<(), ServerError> {
-        let (sender, _) = broadcast::channel(MAX_CONNECTIONS);
+    pub async fn run_server(self, config: &Config) -> Result<(), ServerError> {
+        let (sender, _) = broadcast::channel(config.max_connections);
         loop {
+            let config = self.config.clone();
             let (mut client_socket, _) = self.listener.accept().await.unwrap();
             let sender = sender.clone();
             let mut receiver = sender.subscribe();
@@ -51,7 +52,7 @@ impl Server {
                 let (reader, mut writer) = client_socket.split();
                 let mut reader = BufReader::new(reader);
 
-                let username = match validate_username(&mut reader, &mut writer).await {
+                let username = match validate_username(&config, &mut reader, &mut writer).await {
                     Ok(username) => {
                         print_message!(&username, CONNECTION_MESSAGE);
                         username
@@ -114,6 +115,7 @@ impl Server {
 
 //  TODO: Check for the other error cases
 async fn validate_username(
+    config: &Config,
     reader: &mut BufReader<ReadHalf<'_>>,
     writer: &mut WriteHalf<'_>,
 ) -> Result<String, ServerError> {
@@ -125,9 +127,15 @@ async fn validate_username(
             });
         }
         username = username.trim().to_string();
-
-        let response = if username.is_empty() { "Error" } else { "Ok" };
-        if (writer.write_all(format!("{}\n", response_to_json_string(response)).as_bytes()).await).is_err() {
+        let response = match username.len() {
+            len if len >= config.min_message_len && len <= config.max_message_len => "Ok",
+            _ => "Error",
+        };
+        if (writer
+            .write_all(format!("{}\n", response_to_json_string(response)).as_bytes())
+            .await)
+            .is_err()
+        {
             return Err(ServerError {
                 message: "Client disconnected before entering username".to_string(),
             });
@@ -141,7 +149,8 @@ async fn validate_username(
 
 fn to_json_string(username: String, data: String) -> String {
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
-    serde_json::json!({ "type": "message", "sender": username, "data": data, "date": now }).to_string()
+    serde_json::json!({ "type": "message", "sender": username, "data": data, "date": now })
+        .to_string()
 }
 
 fn response_to_json_string(response: &str) -> String {
