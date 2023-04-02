@@ -14,7 +14,7 @@ mod ui;
 // TODO: Change the errors handling somehow
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let mut socket = match TcpStream::connect("localhost:8080").await {
+    let mut socket = match TcpStream::connect("0.0.0.0:8080").await {
         Ok(socket) => socket,
         Err(_) => {
             eprintln!("[ERROR] Server is offline. Try again later");

@@ -1,11 +1,14 @@
+mod config;
 mod error;
+mod macros;
 mod server;
 
+use config::Config;
 use server::*;
 
 #[tokio::main]
 async fn main() -> Result<(), error::ServerError> {
-    let mut server = Server::new().await?;
-    server.run_server().await?;
+    let config = Config::default();
+    run_server(&config).await?;
     Ok(())
 }
