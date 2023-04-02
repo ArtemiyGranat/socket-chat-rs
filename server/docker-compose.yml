@@ -2,7 +2,7 @@ version: '3.8'
 services:
   server:
     container_name: socket-chat-server
-    image: server
+    build: .
     restart: always
     ports:
       - 8080:8080
