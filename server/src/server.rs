@@ -102,38 +102,46 @@ async fn handle_received_data(
             message: e.to_string(),
         });
     }
-    match data.trim().len() {
-        len if len >= config.min_message_len && len <= config.max_message_len => {
-            print_message!(username, data);
-            sender
-                .send((message_to_json!(username, data.clone()), Some(client_addr)))
-                .unwrap();
-        }
-        _ => {
-            todo!();
-        }
+
+    // TODO: Fix the logic
+    if config.is_valid_message(data.trim()) {
+        print_message!(username, data);
+        sender
+            .send((message_to_json!(username, data.clone()), Some(client_addr)))
+            .unwrap();
+    } else {
+        sender
+            .send((
+                response_to_json!("Invalid message format\n"),
+                Some(client_addr),
+            ))
+            .unwrap();
     }
+
     data.clear();
     Ok(())
 }
 
+// TODO: Fix the logic
 async fn validate_username(
     config: &Config,
     reader: &mut BufReader<ReadHalf<'_>>,
     writer: &mut WriteHalf<'_>,
 ) -> Result<String, ServerError> {
-    let mut username = String::new();
     loop {
+        let mut username = String::new();
         if (reader.read_line(&mut username).await).is_err() {
             return Err(ServerError {
                 message: "Client disconnected before entering username".to_string(),
             });
         }
         username = username.trim().to_string();
-        let response = match username.len() {
-            len if len >= config.min_username_len && len <= config.max_username_len => "Ok",
-            _ => "Error",
+        let response = if config.is_valid_username(&username) {
+            "Ok"
+        } else {
+            "Error"
         };
+
         if (writer
             .write_all(response_to_json!(response).as_bytes())
             .await)
@@ -146,6 +154,5 @@ async fn validate_username(
         if let "Ok" = response {
             return Ok(username);
         }
-        username.clear();
     }
 }

@@ -25,18 +25,18 @@ pub(crate) enum InputMode {
     Insert,
 }
 
+#[derive(Debug)]
+enum Command {
+    Exit,
+    SendMessage(String),
+}
+
 pub(crate) struct Client {
     pub username: String,
     pub client_state: ClientState,
     pub input: String,
     pub input_mode: InputMode,
     pub messages: Vec<Value>,
-}
-
-#[derive(Debug)]
-enum Command {
-    Exit,
-    SendMessage(String),
 }
 
 impl Default for Client {
@@ -102,27 +102,40 @@ impl Client {
     }
 
     fn handle_received_data(&mut self, data: &str) {
-        let json_data = from_json_string(data);
-        match json_data["type"].as_str() {
-            Some("message") => {
-                if let ClientState::LoggedIn = self.client_state {
+        let json_data = from_json_str(data);
+        match json_data.get("type").and_then(|data| data.as_str()) {
+            Some("message") => self.handle_message(json_data),
+            Some("response") => self.handle_response(json_data),
+            _ => unreachable!("Wrong type {:?}", json_data),
+        }
+    }
+
+    fn handle_message(&mut self, json_data: Value) {
+        if let ClientState::LoggedIn = self.client_state {
+            self.messages.push(json_data);
+        }
+    }
+
+    // TODO: Fix the logic
+    fn handle_response(&mut self, json_data: Value) {
+        if let ClientState::LoggingIn = self.client_state {
+            match json_data.get("data").and_then(|data| data.as_str()) {
+                Some("Ok") => {
+                    self.client_state = ClientState::LoggedIn;
+                }
+                Some("Error") => {
+                    self.username.clear();
+                }
+                _ => unreachable!("Invalid data {:?}", json_data),
+            }
+        } else {
+            match json_data.get("data").and_then(|data| data.as_str()) {
+                Some("Error") => {
                     self.messages.push(json_data);
                 }
+                Some("Ok") => {}
+                _ => unreachable!("Invalid data {:?}", json_data),
             }
-            Some("response") => {
-                if let ClientState::LoggingIn = self.client_state {
-                    match json_data["data"].as_str() {
-                        Some("Ok") => {
-                            self.client_state = ClientState::LoggedIn;
-                        }
-                        Some("Error") => {
-                            self.username.clear();
-                        }
-                        _ => unreachable!("Wrong data {:?}", json_data),
-                    }
-                }
-            }
-            _ => unreachable!("Wrong type {:?}", json_data),
         }
     }
 
@@ -160,9 +173,9 @@ impl Client {
                 if let ClientState::LoggedIn = self.client_state {
                     let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
                     self.messages.push(json!({ "type": "message", 
-                                      "sender": self.username,
-                                      "data": message, 
-                                      "date": now }));
+                                               "sender": self.username,
+                                               "data": message, 
+                                               "date": now }));
                 } else {
                     self.username = message;
                 }
@@ -182,11 +195,16 @@ impl Client {
     }
 }
 
-fn from_json_string(json_string: &str) -> Value {
-    let mut json_data: Value = serde_json::from_str(json_string).unwrap();
-    let utc_date: DateTime<FixedOffset> =
-        DateTime::parse_from_str(json_data["date"].as_str().unwrap(), "%Y-%m-%d %H:%M:%S %z")
-            .unwrap();
+fn from_json_str(json_str: &str) -> Value {
+    let mut json_data: Value = serde_json::from_str(json_str).unwrap();
+    let utc_date: DateTime<FixedOffset> = DateTime::parse_from_str(
+        json_data
+            .get("date")
+            .and_then(|data| data.as_str())
+            .unwrap(),
+        "%Y-%m-%d %H:%M:%S %z",
+    )
+    .unwrap();
     let local_date: DateTime<Local> = utc_date.into();
 
     json_data["date"] = json!(local_date.format("%d-%m-%Y %H:%M").to_string());
