@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::error::ServerError;
-use crate::{conn_message, disc_message, print_message};
+use crate::{conn_message, disc_message, message_to_json, print_message, response_to_json};
 use chrono::{Local, Utc};
 use std::net::SocketAddr;
 use tokio::{
@@ -59,13 +59,14 @@ async fn handle_client(
                     let disc_message = disc_message!(&username);
                     sender
                         .send((
-                            format!("{}\n", response_to_json_string(&disc_message)),
+                            response_to_json!(&disc_message),
                             Some(client_addr),
                         ))
                         .unwrap();
                     break Ok(())
                 }
                 handle_received_data(
+                    config,
                     received_data_size,
                     client_addr,
                     username.clone(),
@@ -89,6 +90,7 @@ async fn handle_client(
 }
 
 async fn handle_received_data(
+    config: &Config,
     size: Result<usize, std::io::Error>,
     client_addr: SocketAddr,
     username: String,
@@ -100,13 +102,17 @@ async fn handle_received_data(
             message: e.to_string(),
         });
     }
-    print_message!(username, data);
-    sender
-        .send((
-            format!("{}\n", to_json_string(username, data.clone())),
-            Some(client_addr),
-        ))
-        .unwrap();
+    match data.trim().len() {
+        len if len >= config.min_message_len && len <= config.max_message_len => {
+            print_message!(username, data);
+            sender
+                .send((message_to_json!(username, data.clone()), Some(client_addr)))
+                .unwrap();
+        }
+        _ => {
+            todo!();
+        }
+    }
     data.clear();
     Ok(())
 }
@@ -125,11 +131,11 @@ async fn validate_username(
         }
         username = username.trim().to_string();
         let response = match username.len() {
-            len if len >= config.min_message_len && len <= config.max_message_len => "Ok",
+            len if len >= config.min_username_len && len <= config.max_username_len => "Ok",
             _ => "Error",
         };
         if (writer
-            .write_all(format!("{}\n", response_to_json_string(response)).as_bytes())
+            .write_all(response_to_json!(response).as_bytes())
             .await)
             .is_err()
         {
@@ -142,15 +148,4 @@ async fn validate_username(
         }
         username.clear();
     }
-}
-
-fn to_json_string(username: String, data: String) -> String {
-    let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
-    serde_json::json!({ "type": "message", "sender": username, "data": data, "date": now })
-        .to_string()
-}
-
-fn response_to_json_string(response: &str) -> String {
-    let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
-    serde_json::json!({ "type": "response", "data": response, "date": now }).to_string()
 }
