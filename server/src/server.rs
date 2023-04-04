@@ -1,7 +1,8 @@
 use crate::config::Config;
 use crate::error::ServerError;
-use crate::{conn_message, disc_message, message_to_json, print_message, response_to_json};
+use crate::{conn_message, disc_message, message_to_json, response_to_json};
 use chrono::{Local, Utc};
+use log::info;
 use std::net::SocketAddr;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -14,7 +15,10 @@ use tokio::{
 
 async fn init_server(config: &Config) -> Result<TcpListener, ServerError> {
     match TcpListener::bind(config.server_address.clone()).await {
-        Ok(listener) => Ok(listener),
+        Ok(listener) => {
+            info!("Server is listening on {}", config.server_address);
+            Ok(listener)
+        }
         Err(_) => Err(ServerError {
             message: "Could not bind the server to this address".to_string(),
         }),
@@ -30,9 +34,9 @@ pub async fn run_server(config: &Config) -> Result<(), ServerError> {
         let mut sender = sender.clone();
 
         tokio::spawn(async move {
-            handle_client(&config, client_socket, &mut sender)
-                .await
-                .unwrap();
+            if let Err(e) = handle_client(&config, client_socket, &mut sender).await {
+                info!("{}", e.message);
+            }
         });
     }
 }
@@ -47,8 +51,12 @@ async fn handle_client(
     let (reader, mut writer) = client_socket.split();
     let mut reader = BufReader::new(reader);
 
-    let username = validate_username(config, &mut reader, &mut writer).await?;
+    let username = validate_username(client_addr, config, &mut reader, &mut writer).await?;
     let _conn_message = conn_message!(&username);
+    info!(
+        "{} ({}) has been connected to the server",
+        username, client_addr
+    );
     // TODO: Send connection message to all other clients (_conn_message should be used).
 
     let mut data = String::new();
@@ -57,6 +65,7 @@ async fn handle_client(
             received_data_size = reader.read_line(&mut data) => {
                 if let Ok(0) = received_data_size {
                     let disc_message = disc_message!(&username);
+                    info!("{} ({}) has been disconnected from the server", username, client_addr);
                     sender
                         .send((
                             response_to_json!(&disc_message),
@@ -104,7 +113,7 @@ async fn handle_received_data(
     }
     match data.trim().len() {
         len if len >= config.min_message_len && len <= config.max_message_len => {
-            print_message!(username, data);
+            info!("{} sent a message to the server", username);
             sender
                 .send((message_to_json!(username, data.clone()), Some(client_addr)))
                 .unwrap();
@@ -118,6 +127,7 @@ async fn handle_received_data(
 }
 
 async fn validate_username(
+    client_addr: SocketAddr,
     config: &Config,
     reader: &mut BufReader<ReadHalf<'_>>,
     writer: &mut WriteHalf<'_>,
@@ -126,7 +136,7 @@ async fn validate_username(
     loop {
         if (reader.read_line(&mut username).await).is_err() {
             return Err(ServerError {
-                message: "Client disconnected before entering username".to_string(),
+                message: format!("{} disconnected before entering username", client_addr),
             });
         }
         username = username.trim().to_string();
@@ -140,7 +150,7 @@ async fn validate_username(
             .is_err()
         {
             return Err(ServerError {
-                message: "Client disconnected before entering username".to_string(),
+                message: format!("{} disconnected before entering username", client_addr),
             });
         }
         if let "Ok" = response {
