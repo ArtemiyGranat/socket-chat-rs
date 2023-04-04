@@ -62,11 +62,10 @@ async fn handle_client(
         tokio::select! {
             received_data_size = reader.read_line(&mut data) => {
                 if let Ok(0) = received_data_size {
-                    let disc_message = disc_message!(&username);
                     info!("{} ({}) has been disconnected from the server", username, client_addr);
                     sender
                         .send((
-                            response_to_json!(&disc_message),
+                            response_to_json!(&disc_message!(&username)),
                             Some(client_addr),
                         ))
                         .unwrap();
