@@ -1,4 +1,5 @@
 mod config;
+mod db;
 mod macros;
 mod server;
 
@@ -19,6 +20,15 @@ async fn main() -> Result<()> {
         ))
         .init()
         .unwrap();
+
+    let _pool = match db::connect().await {
+        Some(pool) => pool,
+        None => {
+            error!("Could not connect to the database");
+            return Ok(());
+        },
+    };
+
     let config = Config::default();
     if let Err(e) = run_server(&config).await {
         error!("{}", e);
