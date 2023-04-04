@@ -1,5 +1,4 @@
 mod config;
-mod error;
 mod macros;
 mod server;
 
@@ -9,8 +8,10 @@ use server::*;
 use simple_logger::SimpleLogger;
 use time::macros::format_description;
 
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 #[tokio::main]
-async fn main() -> Result<(), error::ServerError> {
+async fn main() -> Result<()> {
     SimpleLogger::new()
         .with_level(LevelFilter::Info)
         .with_timestamp_format(format_description!(
@@ -20,7 +21,7 @@ async fn main() -> Result<(), error::ServerError> {
         .unwrap();
     let config = Config::default();
     if let Err(e) = run_server(&config).await {
-        error!("{}", e.message);
+        error!("{}", e);
     };
     Ok(())
 }
