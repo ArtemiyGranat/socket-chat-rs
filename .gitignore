@@ -1,3 +1,2 @@
 target/
-socket-chat-lib/
-notes
+server/.env
