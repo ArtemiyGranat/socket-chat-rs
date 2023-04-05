@@ -37,6 +37,7 @@ pub(crate) struct Client {
     pub input: String,
     pub input_mode: InputMode,
     pub messages: Vec<Value>,
+    pub error_handler: Option<String>,
 }
 
 impl Default for Client {
@@ -47,6 +48,7 @@ impl Default for Client {
             input: String::new(),
             input_mode: InputMode::Insert,
             messages: Vec::new(),
+            error_handler: None,
         }
     }
 }
@@ -124,6 +126,7 @@ impl Client {
                     self.client_state = ClientState::LoggedIn;
                 }
                 Some("Error") => {
+                    self.error_handler = json_data.get("data").map(|data| data.to_string());
                     self.username.clear();
                 }
                 _ => unreachable!("Invalid data {:?}", json_data),
@@ -131,7 +134,8 @@ impl Client {
         } else {
             match json_data.get("data").and_then(|data| data.as_str()) {
                 Some("Error") => {
-                    self.messages.push(json_data);
+                    self.error_handler = json_data.get("data").map(|data| data.to_string());
+                    self.messages.pop();
                 }
                 Some("Ok") => {}
                 _ => unreachable!("Invalid data {:?}", json_data),
@@ -140,12 +144,19 @@ impl Client {
     }
 
     async fn handle_input_event(&mut self, key: KeyEvent, sender: &Sender<Command>) {
-        match self.input_mode {
-            InputMode::Normal => {
-                self.handle_normal_mode(key, sender).await;
+        if self.error_handler.is_some() {
+            if let KeyCode::Char('q') = key.code {
+                self.error_handler = None;
+                self.input.clear();
             }
-            InputMode::Insert => {
-                self.handle_insert_mode(key, sender).await;
+        } else {
+            match self.input_mode {
+                InputMode::Normal => {
+                    self.handle_normal_mode(key, sender).await;
+                }
+                InputMode::Insert => {
+                    self.handle_insert_mode(key, sender).await;
+                }
             }
         }
     }

@@ -5,7 +5,7 @@ use tui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 use unicode_width::UnicodeWidthStr;
@@ -15,6 +15,9 @@ pub(crate) fn draw_ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
         draw_chat_screen(f, client);
     } else {
         draw_log_screen(f, client);
+    }
+    if client.error_handler.is_some() {
+        display_error(f, client);
     }
 }
 
@@ -28,8 +31,12 @@ fn draw_chat_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     let help_message = generate_help_message(&client.input_mode);
 
     let messages = client.messages.clone();
-    let messages = List::new(generate_messages(&messages))
-        .block(Block::default().borders(Borders::ALL).title(help_message));
+    let messages = List::new(generate_messages(&messages)).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title(help_message),
+    );
 
     let messages_limit = chunks[0].height - 2;
     if client.messages.len() > messages_limit as usize {
@@ -58,19 +65,24 @@ fn draw_input_block(client: &mut Client) -> Paragraph {
     };
     Paragraph::new(client.input.as_ref())
         .style(match client.input_mode {
-            InputMode::Normal => Style::default(),
-            InputMode::Insert => Style::default().fg(Color::Yellow),
+            InputMode::Insert if client.error_handler.is_none() => {
+                Style::default().fg(Color::Yellow)
+            }
+            _ => Style::default(),
         })
         .block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .title(format!(" Enter the {}", needed_input)),
         )
 }
 
 fn set_cursor<B: Backend>(f: &mut Frame<B>, client: &mut Client, area: Rect) {
     if let InputMode::Insert = client.input_mode {
-        f.set_cursor(area.x + client.input.width() as u16 + 1, area.y + 1);
+        if client.error_handler.is_none() {
+            f.set_cursor(area.x + client.input.width() as u16 + 1, area.y + 1);
+        }
     }
 }
 
@@ -119,37 +131,24 @@ fn generate_help_message(input_mode: &InputMode) -> Vec<Span> {
     }
 }
 
-// TODO: Fix the logic
 fn generate_messages(messages: &[Value]) -> Vec<ListItem> {
     messages
         .iter()
-        .map(
-            |json_data| match json_data.get("type").and_then(|data| data.as_str()) {
-                Some("message") => {
-                    let date = json_data
-                        .get("date")
-                        .and_then(|data| data.as_str())
-                        .unwrap();
-                    let data = json_data
-                        .get("data")
-                        .and_then(|data| data.as_str())
-                        .unwrap();
-                    let sender = json_data
-                        .get("sender")
-                        .and_then(|data| data.as_str())
-                        .unwrap();
-                    display_message(date, sender, data)
-                }
-                Some("response") => {
-                    let date = json_data
-                        .get("date")
-                        .and_then(|data| data.as_str())
-                        .unwrap();
-                    display_error(date)
-                }
-                _ => todo!(),
-            },
-        )
+        .map(|json_data| {
+            let date = json_data
+                .get("date")
+                .and_then(|data| data.as_str())
+                .unwrap();
+            let data = json_data
+                .get("data")
+                .and_then(|data| data.as_str())
+                .unwrap();
+            let sender = json_data
+                .get("sender")
+                .and_then(|data| data.as_str())
+                .unwrap();
+            display_message(date, sender, data)
+        })
         .collect()
 }
 
@@ -172,24 +171,24 @@ fn display_message<'a>(date: &'a str, sender: &'a str, data: &'a str) -> ListIte
     ListItem::new(content)
 }
 
-fn display_error<'a>(date: &'a str) -> ListItem<'a> {
-    let content = vec![Spans::from(vec![
-        Span::styled(
-            format!("[{}] ", date),
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(Color::Rgb(216, 222, 233)),
-        ),
-        Span::styled(
-            "[ERROR] ",
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(Color::Rgb(129, 161, 193)),
-        ),
-        Span::styled(
-            "Invalid message format",
-            Style::default().fg(Color::Rgb(216, 222, 233)),
-        ),
-    ])];
-    ListItem::new(content)
+fn display_error<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
+    let error_message = client.error_handler.as_ref().unwrap();
+    let block = Paragraph::new(error_message.as_ref())
+        .block(
+            Block::default()
+                .title(vec![
+                    Span::styled(
+                        " Error!",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" Press "),
+                    Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(" to continue"),
+                ])
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
+        )
+        .wrap(Wrap { trim: true });
+    let area = centered_rect(35, 10, f.size());
+    f.render_widget(block, area);
 }

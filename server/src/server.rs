@@ -12,7 +12,7 @@ use tokio::{
     sync::broadcast::{self, Sender},
 };
 
-async fn init_server(config: &Config) -> Result<TcpListener, ServerError> {
+async fn bind(config: &Config) -> Result<TcpListener, ServerError> {
     match TcpListener::bind(config.server_address.clone()).await {
         Ok(listener) => Ok(listener),
         Err(_) => Err(ServerError {
@@ -21,8 +21,8 @@ async fn init_server(config: &Config) -> Result<TcpListener, ServerError> {
     }
 }
 
-pub async fn run_server(config: &Config) -> Result<(), ServerError> {
-    let listener = init_server(config).await?;
+pub async fn run(config: &Config) -> Result<(), ServerError> {
+    let listener = bind(config).await?;
     let (sender, _) = broadcast::channel(config.max_connections);
     loop {
         let config = config.clone();
@@ -72,6 +72,7 @@ async fn handle_client(
                     username.clone(),
                     &mut data,
                     sender,
+                    &mut writer
                 )
                 .await?;
             }
@@ -96,6 +97,7 @@ async fn handle_received_data(
     username: String,
     data: &mut String,
     sender: &mut Sender<(String, Option<SocketAddr>)>,
+    writer: &mut WriteHalf<'_>,
 ) -> Result<(), ServerError> {
     if let Err(e) = size {
         return Err(ServerError {
@@ -103,18 +105,15 @@ async fn handle_received_data(
         });
     }
 
-    // TODO: Fix the logic
     if config.is_valid_message(data.trim()) {
         print_message!(username, data);
         sender
             .send((message_to_json!(username, data.clone()), Some(client_addr)))
             .unwrap();
     } else {
-        sender
-            .send((
-                response_to_json!("Invalid message format\n"),
-                Some(client_addr),
-            ))
+        writer
+            .write_all(response_to_json!("Error").as_bytes())
+            .await
             .unwrap();
     }
 
