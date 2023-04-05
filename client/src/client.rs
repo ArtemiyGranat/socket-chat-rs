@@ -1,3 +1,4 @@
+use crate::request_to_json;
 use crate::ui::draw_ui;
 use chrono::{DateTime, FixedOffset, Local};
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
@@ -29,6 +30,7 @@ pub(crate) enum InputMode {
 enum Command {
     Exit,
     SendMessage(String),
+    LogInUsername(String),
 }
 
 pub(crate) struct Client {
@@ -79,11 +81,19 @@ impl Client {
                 command = receiver.recv() => {
                     match command.unwrap() {
                         Command::SendMessage(data) => {
+                            let request = request_to_json!("SendMessage", data);
                             writer
-                                .write_all(format!("{}\n", data.trim()).as_bytes())
+                                .write_all(request.as_bytes())
                                 .await
                                 .unwrap();
                         },
+                        Command::LogInUsername(username) => {
+                            let request = request_to_json!("LogInUsername", username);
+                            writer
+                                .write_all(request.as_bytes())
+                                .await
+                                .unwrap();
+                        }
                         Command::Exit => break Ok(()),
                     }
                 }
@@ -104,11 +114,13 @@ impl Client {
     }
 
     fn handle_received_data(&mut self, data: &str) {
-        let json_data = from_json_str(data);
+        let json_data: Value = serde_json::from_str(data).unwrap();
         match json_data.get("type").and_then(|data| data.as_str()) {
-            Some("message") => self.handle_message(json_data),
             Some("response") => self.handle_response(json_data),
-            _ => unreachable!("Wrong type {:?}", json_data),
+            Some("request_s2c") => {
+                unimplemented!()
+            }
+            _ => unreachable!(),
         }
     }
 
@@ -118,26 +130,26 @@ impl Client {
         }
     }
 
-    // TODO: Fix the logic
     fn handle_response(&mut self, json_data: Value) {
         if let ClientState::LoggingIn = self.client_state {
-            match json_data.get("data").and_then(|data| data.as_str()) {
-                Some("Ok") => {
+            match json_data.get("status_code").and_then(|code| code.as_i64()) {
+                Some(200) => {
                     self.client_state = ClientState::LoggedIn;
                 }
-                Some("Error") => {
-                    self.error_handler = json_data.get("data").map(|data| data.to_string());
-                    self.username.clear();
+                Some(400) => {
+                    self.error_handler = json_data.get("message").map(|msg| msg.to_string());
                 }
                 _ => unreachable!("Invalid data {:?}", json_data),
             }
         } else {
-            match json_data.get("data").and_then(|data| data.as_str()) {
-                Some("Error") => {
-                    self.error_handler = json_data.get("data").map(|data| data.to_string());
+            match json_data.get("status_code").and_then(|code| code.as_i64()) {
+                Some(200) => {
+                    // TODO: Implement 'Delivered' icon
+                }
+                Some(400) => {
+                    self.error_handler = json_data.get("message").map(|msg| msg.to_string());
                     self.messages.pop();
                 }
-                Some("Ok") => {}
                 _ => unreachable!("Invalid data {:?}", json_data),
             }
         }
@@ -176,19 +188,21 @@ impl Client {
     async fn handle_insert_mode(&mut self, key: KeyEvent, sender: &Sender<Command>) {
         match key.code {
             KeyCode::Enter => {
-                sender
-                    .send(Command::SendMessage(self.input.clone()))
-                    .await
-                    .unwrap();
-                let message: String = self.input.drain(..).collect();
+                let command = if let ClientState::LoggedIn = self.client_state {
+                    Command::SendMessage(self.input.clone())
+                } else {
+                    Command::LogInUsername(self.input.clone())
+                };
+                sender.send(command).await.unwrap();
+
                 if let ClientState::LoggedIn = self.client_state {
                     let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
                     self.messages.push(json!({ "type": "message", 
                                                "sender": self.username,
-                                               "data": message, 
+                                               "data": self.input, 
                                                "date": now }));
                 } else {
-                    self.username = message;
+                    self.username = self.input.clone();
                 }
                 self.input.clear()
             }
@@ -208,6 +222,7 @@ impl Client {
 
 fn from_json_str(json_str: &str) -> Value {
     let mut json_data: Value = serde_json::from_str(json_str).unwrap();
+
     let utc_date: DateTime<FixedOffset> = DateTime::parse_from_str(
         json_data
             .get("date")

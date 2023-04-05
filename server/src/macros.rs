@@ -33,19 +33,26 @@ macro_rules! print_message {
 }
 
 #[macro_export]
-macro_rules! message_to_json {
-    ($username:expr, $data:expr) => {{
-        let now = Local::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
-        let json = serde_json::json!({ "type": "message", "sender": $username, "data": $data, "date": now });
-        format!("{}\n", json)
-    }};
+macro_rules! response_to_json {
+    ($status_code:expr, $message:expr) => {{
+        let response = serde_json::json!({ "type": "response", "status_code": $status_code, "message": $message });
+        format!("{}\n", response)
+    }}
 }
 
 #[macro_export]
-macro_rules! response_to_json {
-    ($response:expr) => {{
-        let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
-        let json = serde_json::json!({ "type": "response", "data": $response, "date": now });
-        format!("{}\n", json)
-    }};
+macro_rules! request_to_json {
+    ($method:expr, $body:expr) => {{
+        let request = match $method {
+            "Connection" => {
+                serde_json::json!({ "type": "request_s2c", "method": $method, "body": $body})
+            }
+            "SendMessage" => {
+                serde_json::json!({ "type": "request_s2c", "method": $method, "body": $body })
+            }
+            "MessageRead" => unimplemented!(),
+            &_ => unreachable!()
+        };
+        format!("{}\n", request)
+    }}
 }

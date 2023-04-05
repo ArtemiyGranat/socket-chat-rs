@@ -9,6 +9,7 @@ use tokio::net::TcpStream;
 use tui::{backend::CrosstermBackend, Terminal};
 
 mod client;
+mod macros;
 mod ui;
 
 // TODO: Change the errors handling somehow

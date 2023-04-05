@@ -19,7 +19,6 @@ impl Default for Config {
             max_message_len: 256,
         }
     }
-
 }
 
 impl Config {
