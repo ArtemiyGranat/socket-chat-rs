@@ -1,11 +1,13 @@
-use crate::ui::draw_ui;
-use chrono::{DateTime, FixedOffset, Local};
+use crate::message::Message;
+use crate::request_to_json;
+use crate::ui::ui;
+use chrono::Local;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
 use futures::{FutureExt, StreamExt};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::io;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     net::TcpStream,
     sync::mpsc::{self, Sender},
 };
@@ -25,18 +27,20 @@ pub(crate) enum InputMode {
     Insert,
 }
 
+#[derive(Debug)]
+enum Command {
+    Exit,
+    SendMessage(String),
+    LogInUsername(String),
+}
+
 pub(crate) struct Client {
     pub username: String,
     pub client_state: ClientState,
     pub input: String,
     pub input_mode: InputMode,
-    pub messages: Vec<Value>,
-}
-
-#[derive(Debug)]
-enum Command {
-    Exit,
-    SendMessage(String),
+    pub messages: Vec<Message>,
+    pub error_handler: Option<String>,
 }
 
 impl Default for Client {
@@ -47,6 +51,7 @@ impl Default for Client {
             input: String::new(),
             input_mode: InputMode::Insert,
             messages: Vec::new(),
+            error_handler: None,
         }
     }
 }
@@ -64,7 +69,7 @@ impl Client {
         let mut data = String::new();
 
         loop {
-            terminal.draw(|f| draw_ui(f, &mut self))?;
+            terminal.draw(|f| ui(f, &mut self))?;
             tokio::select! {
                 received_data_size = stream_reader.read_line(&mut data) => {
                     if let Ok(0) = received_data_size {
@@ -77,11 +82,13 @@ impl Client {
                 command = receiver.recv() => {
                     match command.unwrap() {
                         Command::SendMessage(data) => {
-                            writer
-                                .write_all(format!("{}\n", data.trim()).as_bytes())
-                                .await
-                                .unwrap();
+                            let request = request_to_json!("SendMessage", data);
+                            self.send_request(&mut writer, &request).await.unwrap();
                         },
+                        Command::LogInUsername(username) => {
+                            let request = request_to_json!("LogInUsername", username);
+                            self.send_request(&mut writer, &request).await.unwrap();
+                        }
                         Command::Exit => break Ok(()),
                     }
                 }
@@ -96,44 +103,61 @@ impl Client {
 
     fn handle_server_shutdown(&mut self) {
         let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
-        self.messages.push(
-            serde_json::json!({"type": "message", "sender": "SERVER", "data": SERVER_SHUTDOWN_MESSAGE, "date": now }),
-        );
+        self.messages
+            .push(Message::new(SERVER_SHUTDOWN_MESSAGE.to_string(), None, now));
     }
 
     fn handle_received_data(&mut self, data: &str) {
-        let json_data = from_json_string(data);
-        match json_data["type"].as_str() {
-            Some("message") => {
+        let json_data: Value = serde_json::from_str(data).unwrap();
+        match json_data.get("type").and_then(|v| v.as_str()) {
+            Some("response") => self.handle_response(json_data),
+            Some("request_s2c") => self.handle_request(json_data),
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_request(&mut self, json_data: Value) {
+        match json_data.get("method").and_then(|v| v.as_str()) {
+            Some("SendMessage") | Some("Connection") => {
                 if let ClientState::LoggedIn = self.client_state {
-                    self.messages.push(json_data);
+                    let message = Message::from_json_value(json_data);
+                    self.messages.push(message);
                 }
             }
-            Some("response") => {
+            Some("MessageRead") => unimplemented!(),
+            _ => unreachable!("Invalid data {:?}", json_data),
+        }
+    }
+
+    fn handle_response(&mut self, json_data: Value) {
+        match json_data.get("status_code").and_then(|v| v.as_i64()) {
+            Some(200) => {
                 if let ClientState::LoggingIn = self.client_state {
-                    match json_data["data"].as_str() {
-                        Some("Ok") => {
-                            self.client_state = ClientState::LoggedIn;
-                        }
-                        Some("Error") => {
-                            self.username.clear();
-                        }
-                        _ => unreachable!("Wrong data {:?}", json_data),
-                    }
+                    self.client_state = ClientState::LoggedIn;
+                } else {
+                    // TODO: Implement 'Delivered' icon
                 }
             }
-            _ => unreachable!("Wrong type {:?}", json_data),
+            Some(400) => {
+                self.error_handler = json_data.get("message").map(|msg| msg.to_string());
+                // TODO: Implement new logic - push message to self.messages only if OK received
+                if let ClientState::LoggedIn = self.client_state {
+                    self.messages.pop();
+                }
+            }
+            _ => panic!("Invalid data {:?}", json_data),
         }
     }
 
     async fn handle_input_event(&mut self, key: KeyEvent, sender: &Sender<Command>) {
-        match self.input_mode {
-            InputMode::Normal => {
-                self.handle_normal_mode(key, sender).await;
+        if self.error_handler.is_none() {
+            match self.input_mode {
+                InputMode::Normal => self.handle_normal_mode(key, sender).await,
+                InputMode::Insert => self.handle_insert_mode(key, sender).await,
             }
-            InputMode::Insert => {
-                self.handle_insert_mode(key, sender).await;
-            }
+        } else if let KeyCode::Char('q') = key.code {
+            self.error_handler = None;
+            self.input.clear();
         }
     }
 
@@ -152,19 +176,22 @@ impl Client {
     async fn handle_insert_mode(&mut self, key: KeyEvent, sender: &Sender<Command>) {
         match key.code {
             KeyCode::Enter => {
-                sender
-                    .send(Command::SendMessage(self.input.clone()))
-                    .await
-                    .unwrap();
-                let message: String = self.input.drain(..).collect();
+                let command = if let ClientState::LoggedIn = self.client_state {
+                    Command::SendMessage(self.input.clone())
+                } else {
+                    Command::LogInUsername(self.input.clone())
+                };
+                sender.send(command).await.unwrap();
+
                 if let ClientState::LoggedIn = self.client_state {
                     let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
-                    self.messages.push(json!({ "type": "message", 
-                                      "sender": self.username,
-                                      "data": message, 
-                                      "date": now }));
+                    self.messages.push(Message::new(
+                        self.input.clone(),
+                        Some(self.username.clone()),
+                        now,
+                    ));
                 } else {
-                    self.username = message;
+                    self.username = self.input.clone();
                 }
                 self.input.clear()
             }
@@ -180,15 +207,13 @@ impl Client {
             _ => {}
         }
     }
-}
 
-fn from_json_string(json_string: &str) -> Value {
-    let mut json_data: Value = serde_json::from_str(json_string).unwrap();
-    let utc_date: DateTime<FixedOffset> =
-        DateTime::parse_from_str(json_data["date"].as_str().unwrap(), "%Y-%m-%d %H:%M:%S %z")
-            .unwrap();
-    let local_date: DateTime<Local> = utc_date.into();
-
-    json_data["date"] = json!(local_date.format("%d-%m-%Y %H:%M").to_string());
-    json_data
+    async fn send_request<W: AsyncWrite + Unpin>(
+        &self,
+        mut writer: W,
+        request: &str,
+    ) -> io::Result<()> {
+        writer.write_all(request.as_bytes()).await?;
+        Ok(())
+    }
 }

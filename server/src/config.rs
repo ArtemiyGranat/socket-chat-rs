@@ -20,3 +20,13 @@ impl Default for Config {
         }
     }
 }
+
+impl Config {
+    pub fn is_valid_username(&self, username: &str) -> bool {
+        (self.min_username_len..=self.max_username_len).contains(&username.len())
+    }
+
+    pub fn is_valid_message(&self, message: &str) -> bool {
+        (self.min_message_len..=self.max_message_len).contains(&message.len())
+    }
+}

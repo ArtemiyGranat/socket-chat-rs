@@ -1,15 +1,14 @@
 use crate::config::Config;
+
 use crate::Result;
 use crate::{conn_message, disc_message, message_to_json, response_to_json};
 use chrono::{Local, Utc};
 use log::info;
 use std::net::SocketAddr;
+use tokio::io::AsyncWrite;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{
-        tcp::{ReadHalf, WriteHalf},
-        TcpListener, TcpStream,
-    },
+    net::{tcp::ReadHalf, TcpListener, TcpStream},
     sync::broadcast::{self, Sender},
 };
 
@@ -56,19 +55,15 @@ async fn handle_client(
         username, client_addr
     );
     // TODO: Send connection message to all other clients (_conn_message should be used).
+    handle_new_connection(username.clone());
 
     let mut data = String::new();
     loop {
         tokio::select! {
             received_data_size = reader.read_line(&mut data) => {
                 if let Ok(0) = received_data_size {
+                    handle_disconnection(username, sender, client_addr);
                     info!("{} ({}) has been disconnected from the server", username, client_addr);
-                    sender
-                        .send((
-                            response_to_json!(&disc_message!(&username)),
-                            Some(client_addr),
-                        ))
-                        .unwrap();
                     break Ok(())
                 }
                 handle_received_data(
@@ -78,6 +73,7 @@ async fn handle_client(
                     username.clone(),
                     &mut data,
                     sender,
+                    &mut writer
                 )
                 .await?;
             }
@@ -95,58 +91,95 @@ async fn handle_client(
     }
 }
 
-async fn handle_received_data(
+// TODO: Add request handling for the future
+async fn handle_received_data<W: AsyncWrite + Unpin>(
     config: &Config,
     size: std::io::Result<usize>,
     client_addr: SocketAddr,
     username: String,
     data: &mut String,
     sender: &mut Sender<(String, Option<SocketAddr>)>,
+    writer: &mut W,
 ) -> Result<()> {
     if let Err(e) = size {
         return Err(e.into());
     }
-    match data.trim().len() {
-        len if len >= config.min_message_len && len <= config.max_message_len => {
-            info!("{} sent a message to the server", username);
-            sender
-                .send((message_to_json!(username, data.clone()), Some(client_addr)))
-                .unwrap();
-        }
-        _ => {
-            todo!();
-        }
+    let json_data: Value = serde_json::from_str(data).unwrap();
+    let msg = json_data
+        .get("body")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    if config.is_valid_message(msg.trim()) {
+        info!("{} sent a message to the server", username);
+        let now = Local::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
+        let request = request_to_json!(
+            "SendMessage",
+            serde_json::json!({ "data": msg.trim(), "sender": username, "date": now })
+        );
+        sender.send((request, Some(client_addr))).unwrap();
+    } else {
+        let response = response_to_json!(400, "InvalidMessage");
+        writer.write_all(response.as_bytes()).await.unwrap();
     }
+
     data.clear();
     Ok(())
 }
 
-async fn validate_username(
-    client_addr: SocketAddr,
+// TODO: Fix the logic
+async fn validate_username<W: AsyncWrite + Unpin>(
     config: &Config,
     reader: &mut BufReader<ReadHalf<'_>>,
-    writer: &mut WriteHalf<'_>,
-) -> Result<String> {
-    let mut username = String::new();
+    writer: &mut W,
+) -> Result<String, ServerError> {
     loop {
-        if (reader.read_line(&mut username).await).is_err() {
+        let mut request = String::new();
+        let mut username = String::new();
+        if (reader.read_line(&mut request).await).is_err() {
             return Err(format!("{} disconnected before entering username", client_addr).into());
         }
-        username = username.trim().to_string();
-        let response = match username.len() {
-            len if len >= config.min_username_len && len <= config.max_username_len => "Ok",
-            _ => "Error",
-        };
-        if (writer
-            .write_all(response_to_json!(response).as_bytes())
-            .await)
-            .is_err()
-        {
-            return Err(format!("{} disconnected before entering username", client_addr).into());
+
+        let json_data: Value = serde_json::from_str(&request).unwrap();
+        let (response, status_code) =
+            if let Some("LogInUsername") = json_data.get("method").and_then(|v| v.as_str()) {
+                username = json_data
+                    .get("body")
+                    .and_then(|v| v.as_str())
+                    .unwrap()
+                    .to_string();
+                if config.is_valid_username(&username) {
+                    (response_to_json!(200, "OK"), 200)
+                } else {
+                    (response_to_json!(400, "InvalidUsername"), 400)
+                }
+            } else {
+                (response_to_json!(400, "BadRequest"), 400)
+            };
+
+        if (writer.write_all(response.as_bytes()).await).is_err() {
+            return Err(format!("{} disconnected before entering username", client_addr).into()););
         }
-        if let "Ok" = response {
+        if status_code == 200 {
             return Ok(username);
         }
-        username.clear();
     }
+}
+
+fn handle_new_connection(username: String) {
+    let _conn_message = conn_message!(&username);
+}
+
+fn handle_disconnection(
+    username: String,
+    sender: &mut Sender<(String, Option<SocketAddr>)>,
+    client_addr: SocketAddr,
+) {
+    let disc_message = disc_message!(&username);
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
+    let request = request_to_json!(
+        "Connection",
+        serde_json::json!({ "data": disc_message, "date": now })
+    );
+    sender.send((request, Some(client_addr))).unwrap();
 }
