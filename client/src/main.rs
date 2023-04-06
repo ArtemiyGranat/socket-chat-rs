@@ -13,7 +13,6 @@ mod macros;
 mod message;
 mod ui;
 
-// TODO: Change the errors handling somehow
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let mut socket = match TcpStream::connect("0.0.0.0:8080").await {
@@ -35,7 +34,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         eprintln!("[ERROR] {}", e);
     }
 
-    // TODO: Handle the errors and disable raw mode anyway
+    // TODO: Handle panics
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

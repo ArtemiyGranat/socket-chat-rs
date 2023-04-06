@@ -1,13 +1,13 @@
 use crate::message::Message;
 use crate::request_to_json;
-use crate::ui::draw_ui;
+use crate::ui::ui;
 use chrono::Local;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
 use futures::{FutureExt, StreamExt};
 use serde_json::Value;
 use std::io;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     net::TcpStream,
     sync::mpsc::{self, Sender},
 };
@@ -69,7 +69,7 @@ impl Client {
         let mut data = String::new();
 
         loop {
-            terminal.draw(|f| draw_ui(f, &mut self))?;
+            terminal.draw(|f| ui(f, &mut self))?;
             tokio::select! {
                 received_data_size = stream_reader.read_line(&mut data) => {
                     if let Ok(0) = received_data_size {
@@ -83,17 +83,11 @@ impl Client {
                     match command.unwrap() {
                         Command::SendMessage(data) => {
                             let request = request_to_json!("SendMessage", data);
-                            writer
-                                .write_all(request.as_bytes())
-                                .await
-                                .unwrap();
+                            self.send_request(&mut writer, &request).await.unwrap();
                         },
                         Command::LogInUsername(username) => {
                             let request = request_to_json!("LogInUsername", username);
-                            writer
-                                .write_all(request.as_bytes())
-                                .await
-                                .unwrap();
+                            self.send_request(&mut writer, &request).await.unwrap();
                         }
                         Command::Exit => break Ok(()),
                     }
@@ -115,7 +109,7 @@ impl Client {
 
     fn handle_received_data(&mut self, data: &str) {
         let json_data: Value = serde_json::from_str(data).unwrap();
-        match json_data.get("type").and_then(|data| data.as_str()) {
+        match json_data.get("type").and_then(|v| v.as_str()) {
             Some("response") => self.handle_response(json_data),
             Some("request_s2c") => self.handle_request(json_data),
             _ => unreachable!(),
@@ -123,7 +117,7 @@ impl Client {
     }
 
     fn handle_request(&mut self, json_data: Value) {
-        match json_data.get("method").and_then(|data| data.as_str()) {
+        match json_data.get("method").and_then(|v| v.as_str()) {
             Some("SendMessage") | Some("Connection") => {
                 if let ClientState::LoggedIn = self.client_state {
                     let message = Message::from_json_value(json_data);
@@ -136,45 +130,34 @@ impl Client {
     }
 
     fn handle_response(&mut self, json_data: Value) {
-        if let ClientState::LoggingIn = self.client_state {
-            match json_data.get("status_code").and_then(|code| code.as_i64()) {
-                Some(200) => {
+        match json_data.get("status_code").and_then(|v| v.as_i64()) {
+            Some(200) => {
+                if let ClientState::LoggingIn = self.client_state {
                     self.client_state = ClientState::LoggedIn;
-                }
-                Some(400) => {
-                    self.error_handler = json_data.get("message").map(|msg| msg.to_string());
-                }
-                _ => unreachable!("Invalid data {:?}", json_data),
-            }
-        } else {
-            match json_data.get("status_code").and_then(|code| code.as_i64()) {
-                Some(200) => {
+                } else {
                     // TODO: Implement 'Delivered' icon
                 }
-                Some(400) => {
-                    self.error_handler = json_data.get("message").map(|msg| msg.to_string());
+            }
+            Some(400) => {
+                self.error_handler = json_data.get("message").map(|msg| msg.to_string());
+                // TODO: Implement new logic - push message to self.messages only if OK received
+                if let ClientState::LoggingIn = self.client_state {
                     self.messages.pop();
                 }
-                _ => unreachable!("Invalid data {:?}", json_data),
             }
+            _ => panic!("Invalid data {:?}", json_data),
         }
     }
 
     async fn handle_input_event(&mut self, key: KeyEvent, sender: &Sender<Command>) {
-        if self.error_handler.is_some() {
-            if let KeyCode::Char('q') = key.code {
-                self.error_handler = None;
-                self.input.clear();
-            }
-        } else {
+        if self.error_handler.is_none() {
             match self.input_mode {
-                InputMode::Normal => {
-                    self.handle_normal_mode(key, sender).await;
-                }
-                InputMode::Insert => {
-                    self.handle_insert_mode(key, sender).await;
-                }
+                InputMode::Normal => self.handle_normal_mode(key, sender).await,
+                InputMode::Insert => self.handle_insert_mode(key, sender).await,
             }
+        } else if let KeyCode::Char('q') = key.code {
+            self.error_handler = None;
+            self.input.clear();
         }
     }
 
@@ -223,5 +206,14 @@ impl Client {
             }
             _ => {}
         }
+    }
+
+    async fn send_request<W: AsyncWrite + Unpin>(
+        &self,
+        mut writer: W,
+        request: &str,
+    ) -> io::Result<()> {
+        writer.write_all(request.as_bytes()).await?;
+        Ok(())
     }
 }

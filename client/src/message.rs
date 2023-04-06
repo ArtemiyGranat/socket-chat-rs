@@ -1,5 +1,5 @@
-use chrono::{DateTime, FixedOffset, Local};
-use serde_json::{json, Value};
+use chrono::{DateTime, Local};
+use serde_json::Value;
 
 #[derive(Clone)]
 pub struct Message {
@@ -17,23 +17,20 @@ impl Message {
         let body = value.get("body").unwrap();
         let date = body
             .get("date")
-            .map(|data| {
-                let date = data.as_str().unwrap();
-                let utc_date: DateTime<FixedOffset> =
-                    DateTime::parse_from_str(date, "%Y-%m-%d %H:%M:%S %z").unwrap();
-                let local_date: DateTime<Local> = utc_date.into();
-                json!(local_date.format("%d-%m-%Y %H:%M").to_string())
+            .map(|v| {
+                let date = v.as_str().unwrap();
+                let local_date = DateTime::parse_from_str(date, "%Y-%m-%d %H:%M:%S %z")
+                    .unwrap()
+                    .with_timezone(&Local);
+                local_date.format("%d-%m-%Y %H:%M").to_string()
             })
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
+            .unwrap();
         let sender = body
             .get("sender")
-            .map(|data| data.as_str().unwrap().to_string());
+            .map(|v| v.as_str().unwrap().to_string());
         let data = body
             .get("data")
-            .and_then(|data| data.as_str())
+            .and_then(|v| v.as_str())
             .unwrap()
             .to_string();
         Self { data, sender, date }
