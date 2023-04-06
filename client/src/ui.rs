@@ -1,5 +1,7 @@
-use crate::client::{Client, ClientState, InputMode};
-use serde_json::Value;
+use crate::{
+    client::{Client, ClientState, InputMode},
+    message::Message,
+};
 use tui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -131,42 +133,29 @@ fn generate_help_message(input_mode: &InputMode) -> Vec<Span> {
     }
 }
 
-fn generate_messages(messages: &[Value]) -> Vec<ListItem> {
-    messages
-        .iter()
-        .map(|json_data| {
-            let date = json_data
-                .get("date")
-                .and_then(|data| data.as_str())
-                .unwrap();
-            let data = json_data
-                .get("data")
-                .and_then(|data| data.as_str())
-                .unwrap();
-            let sender = json_data
-                .get("sender")
-                .and_then(|data| data.as_str())
-                .unwrap();
-            display_message(date, sender, data)
-        })
-        .collect()
+fn generate_messages(messages: &[Message]) -> Vec<ListItem> {
+    messages.iter().map(display_message).collect()
 }
 
-fn display_message<'a>(date: &'a str, sender: &'a str, data: &'a str) -> ListItem<'a> {
+fn display_message(message: &Message) -> ListItem {
     let content = vec![Spans::from(vec![
         Span::styled(
-            format!("[{}] ", date),
+            format!("[{}] ", message.date),
             Style::default()
                 .add_modifier(Modifier::BOLD)
                 .fg(Color::Rgb(216, 222, 233)),
         ),
-        Span::styled(
-            format!("[{}] ", sender),
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(Color::Rgb(129, 161, 193)),
-        ),
-        Span::styled(data, Style::default().fg(Color::Rgb(216, 222, 233))),
+        if let Some(username) = &message.sender {
+            Span::styled(
+                format!("[{}] ", username),
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .fg(Color::Rgb(129, 161, 193)),
+            )
+        } else {
+            Span::raw("")
+        },
+        Span::styled(&message.data, Style::default().fg(Color::Rgb(216, 222, 233))),
     ])];
     ListItem::new(content)
 }

@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::error::ServerError;
-use crate::{conn_message, disc_message, print_message, request_to_json, response_to_json};
+use crate::{conn_message, disc_message, request_to_json, response_to_json};
 use chrono::{Local, Utc};
 use serde_json::Value;
 use std::net::SocketAddr;
@@ -93,6 +93,7 @@ async fn handle_client(
     }
 }
 
+// TODO: Add request handling for the future
 async fn handle_received_data(
     config: &Config,
     size: Result<usize, std::io::Error>,
@@ -108,13 +109,13 @@ async fn handle_received_data(
         });
     }
 
-    if config.is_valid_message(data.trim()) {
-        print_message!(username, data);
-        // TODO: Macro
+    let json_data: Value = serde_json::from_str(data).unwrap();
+    let msg = json_data.get("body").and_then(|v| v.as_str()).unwrap().to_string();
+    if config.is_valid_message(msg.trim()) {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
         let request = request_to_json!(
             "SendMessage",
-            serde_json::json!({ "data": data.trim(), "sender": username, "date": now })
+            serde_json::json!({ "data": msg.trim(), "sender": username, "date": now })
         );
         sender.send((request, Some(client_addr))).unwrap();
     } else {

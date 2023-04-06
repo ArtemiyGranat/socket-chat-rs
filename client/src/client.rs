@@ -1,9 +1,10 @@
+use crate::message::Message;
 use crate::request_to_json;
 use crate::ui::draw_ui;
-use chrono::{DateTime, FixedOffset, Local};
+use chrono::Local;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
 use futures::{FutureExt, StreamExt};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::io;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -38,7 +39,7 @@ pub(crate) struct Client {
     pub client_state: ClientState,
     pub input: String,
     pub input_mode: InputMode,
-    pub messages: Vec<Value>,
+    pub messages: Vec<Message>,
     pub error_handler: Option<String>,
 }
 
@@ -108,25 +109,29 @@ impl Client {
 
     fn handle_server_shutdown(&mut self) {
         let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
-        self.messages.push(
-            serde_json::json!({"type": "message", "sender": "SERVER", "data": SERVER_SHUTDOWN_MESSAGE, "date": now }),
-        );
+        self.messages
+            .push(Message::new(SERVER_SHUTDOWN_MESSAGE.to_string(), None, now));
     }
 
     fn handle_received_data(&mut self, data: &str) {
         let json_data: Value = serde_json::from_str(data).unwrap();
         match json_data.get("type").and_then(|data| data.as_str()) {
             Some("response") => self.handle_response(json_data),
-            Some("request_s2c") => {
-                unimplemented!()
-            }
+            Some("request_s2c") => self.handle_request(json_data),
             _ => unreachable!(),
         }
     }
 
-    fn handle_message(&mut self, json_data: Value) {
-        if let ClientState::LoggedIn = self.client_state {
-            self.messages.push(json_data);
+    fn handle_request(&mut self, json_data: Value) {
+        match json_data.get("method").and_then(|data| data.as_str()) {
+            Some("SendMessage") | Some("Connection") => {
+                if let ClientState::LoggedIn = self.client_state {
+                    let message = Message::from_json_value(json_data);
+                    self.messages.push(message);
+                }
+            }
+            Some("MessageRead") => unimplemented!(),
+            _ => unreachable!("Invalid data {:?}", json_data),
         }
     }
 
@@ -197,10 +202,11 @@ impl Client {
 
                 if let ClientState::LoggedIn = self.client_state {
                     let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
-                    self.messages.push(json!({ "type": "message", 
-                                               "sender": self.username,
-                                               "data": self.input, 
-                                               "date": now }));
+                    self.messages.push(Message::new(
+                        self.input.clone(),
+                        Some(self.username.clone()),
+                        now,
+                    ));
                 } else {
                     self.username = self.input.clone();
                 }
@@ -218,21 +224,4 @@ impl Client {
             _ => {}
         }
     }
-}
-
-fn from_json_str(json_str: &str) -> Value {
-    let mut json_data: Value = serde_json::from_str(json_str).unwrap();
-
-    let utc_date: DateTime<FixedOffset> = DateTime::parse_from_str(
-        json_data
-            .get("date")
-            .and_then(|data| data.as_str())
-            .unwrap(),
-        "%Y-%m-%d %H:%M:%S %z",
-    )
-    .unwrap();
-    let local_date: DateTime<Local> = utc_date.into();
-
-    json_data["date"] = json!(local_date.format("%d-%m-%Y %H:%M").to_string());
-    json_data
 }

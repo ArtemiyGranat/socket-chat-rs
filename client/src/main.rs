@@ -10,6 +10,7 @@ use tui::{backend::CrosstermBackend, Terminal};
 
 mod client;
 mod macros;
+mod message;
 mod ui;
 
 // TODO: Change the errors handling somehow
