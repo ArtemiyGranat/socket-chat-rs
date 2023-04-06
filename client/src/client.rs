@@ -141,7 +141,7 @@ impl Client {
             Some(400) => {
                 self.error_handler = json_data.get("message").map(|msg| msg.to_string());
                 // TODO: Implement new logic - push message to self.messages only if OK received
-                if let ClientState::LoggingIn = self.client_state {
+                if let ClientState::LoggedIn = self.client_state {
                     self.messages.pop();
                 }
             }
