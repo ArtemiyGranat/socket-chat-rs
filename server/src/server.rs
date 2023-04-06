@@ -1,9 +1,9 @@
 use crate::config::Config;
-
 use crate::Result;
-use crate::{conn_message, disc_message, message_to_json, response_to_json};
+use crate::{conn_message, disc_message, request_to_json, response_to_json};
 use chrono::{Local, Utc};
 use log::info;
+use serde_json::Value;
 use std::net::SocketAddr;
 use tokio::io::AsyncWrite;
 use tokio::{
@@ -48,7 +48,7 @@ async fn handle_client(
     let (reader, mut writer) = client_socket.split();
     let mut reader = BufReader::new(reader);
 
-    let username = validate_username(client_addr, config, &mut reader, &mut writer).await?;
+    let username = validate_username(config, &mut reader, &mut writer, client_addr).await?;
     let _conn_message = conn_message!(&username);
     info!(
         "{} ({}) has been connected to the server",
@@ -63,7 +63,6 @@ async fn handle_client(
             received_data_size = reader.read_line(&mut data) => {
                 if let Ok(0) = received_data_size {
                     handle_disconnection(username, sender, client_addr);
-                    info!("{} ({}) has been disconnected from the server", username, client_addr);
                     break Ok(())
                 }
                 handle_received_data(
@@ -127,19 +126,23 @@ async fn handle_received_data<W: AsyncWrite + Unpin>(
     Ok(())
 }
 
-// TODO: Fix the logic
+// TODO: Fix the logic 
 async fn validate_username<W: AsyncWrite + Unpin>(
     config: &Config,
     reader: &mut BufReader<ReadHalf<'_>>,
     writer: &mut W,
-) -> Result<String, ServerError> {
+    client_addr: SocketAddr,
+) -> Result<String> {
     loop {
         let mut request = String::new();
         let mut username = String::new();
-        if (reader.read_line(&mut request).await).is_err() {
-            return Err(format!("{} disconnected before entering username", client_addr).into());
-        }
 
+        // TODO: Fix the issue - panic on client disconnection during the login procedure
+        reader.read_line(&mut request).await.unwrap();
+        // if (reader.read_line(&mut request).await).is_err() {
+            // return Err(format!("{} disconnected before entering username", client_addr).into());
+        // }
+        // Need to get rid of unwrap and add the empty request/invalid request check
         let json_data: Value = serde_json::from_str(&request).unwrap();
         let (response, status_code) =
             if let Some("LogInUsername") = json_data.get("method").and_then(|v| v.as_str()) {
@@ -156,9 +159,9 @@ async fn validate_username<W: AsyncWrite + Unpin>(
             } else {
                 (response_to_json!(400, "BadRequest"), 400)
             };
-
+        // TODO: Add send_data function to avoid code duplication
         if (writer.write_all(response.as_bytes()).await).is_err() {
-            return Err(format!("{} disconnected before entering username", client_addr).into()););
+            return Err(format!("{} disconnected before entering username", client_addr).into());
         }
         if status_code == 200 {
             return Ok(username);
@@ -176,6 +179,10 @@ fn handle_disconnection(
     client_addr: SocketAddr,
 ) {
     let disc_message = disc_message!(&username);
+    info!(
+        "{} ({}) has been disconnected from the server",
+        username, client_addr
+    );
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
     let request = request_to_json!(
         "Connection",
