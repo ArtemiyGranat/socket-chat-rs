@@ -36,12 +36,8 @@ macro_rules! response_to_json {
 macro_rules! request_to_json {
     ($method:expr, $body:expr) => {{
         let request = match $method {
-            "Connection" => {
-                serde_json::json!({ "type": "request_s2c", "method": $method, "body": $body})
-            }
-            "SendMessage" => {
-                serde_json::json!({ "type": "request_s2c", "method": $method, "body": $body })
-            }
+            "Connection" | "SendMessage" =>
+                serde_json::json!({ "type": "request_s2c", "method": $method, "body": $body}),
             "MessageRead" => unimplemented!(),
             &_ => unreachable!()
         };

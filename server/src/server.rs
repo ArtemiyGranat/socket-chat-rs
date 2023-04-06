@@ -4,12 +4,10 @@ use crate::{conn_message, disc_message, request_to_json, response_to_json};
 use chrono::{Local, Utc};
 use serde_json::Value;
 use std::net::SocketAddr;
+use tokio::io::AsyncWrite;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{
-        tcp::{ReadHalf, WriteHalf},
-        TcpListener, TcpStream,
-    },
+    net::{tcp::ReadHalf, TcpListener, TcpStream},
     sync::broadcast::{self, Sender},
 };
 
@@ -49,23 +47,15 @@ async fn handle_client(
     let mut reader = BufReader::new(reader);
 
     let username = validate_username(config, &mut reader, &mut writer).await?;
-    let _conn_message = conn_message!(&username);
     // TODO: Send connection message to all other clients (_conn_message should be used).
+    handle_new_connection(username.clone());
 
     let mut data = String::new();
     loop {
         tokio::select! {
             received_data_size = reader.read_line(&mut data) => {
                 if let Ok(0) = received_data_size {
-                    let disc_message = disc_message!(&username);
-                    let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
-                    let request = request_to_json!("Connection", serde_json::json!({ "data": disc_message, "date": now }));
-                    sender
-                        .send((
-                            request,
-                            Some(client_addr),
-                        ))
-                        .unwrap();
+                    handle_disconnection(username, sender, client_addr);
                     break Ok(())
                 }
                 handle_received_data(
@@ -94,14 +84,14 @@ async fn handle_client(
 }
 
 // TODO: Add request handling for the future
-async fn handle_received_data(
+async fn handle_received_data<W: AsyncWrite + Unpin>(
     config: &Config,
     size: Result<usize, std::io::Error>,
     client_addr: SocketAddr,
     username: String,
     data: &mut String,
     sender: &mut Sender<(String, Option<SocketAddr>)>,
-    writer: &mut WriteHalf<'_>,
+    writer: &mut W,
 ) -> Result<(), ServerError> {
     if let Err(e) = size {
         return Err(ServerError {
@@ -110,7 +100,11 @@ async fn handle_received_data(
     }
 
     let json_data: Value = serde_json::from_str(data).unwrap();
-    let msg = json_data.get("body").and_then(|v| v.as_str()).unwrap().to_string();
+    let msg = json_data
+        .get("body")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
     if config.is_valid_message(msg.trim()) {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
         let request = request_to_json!(
@@ -128,10 +122,10 @@ async fn handle_received_data(
 }
 
 // TODO: Fix the logic
-async fn validate_username(
+async fn validate_username<W: AsyncWrite + Unpin>(
     config: &Config,
     reader: &mut BufReader<ReadHalf<'_>>,
-    writer: &mut WriteHalf<'_>,
+    writer: &mut W,
 ) -> Result<String, ServerError> {
     loop {
         let mut request = String::new();
@@ -144,10 +138,10 @@ async fn validate_username(
 
         let json_data: Value = serde_json::from_str(&request).unwrap();
         let (response, status_code) =
-            if let Some("LogInUsername") = json_data.get("method").and_then(|data| data.as_str()) {
+            if let Some("LogInUsername") = json_data.get("method").and_then(|v| v.as_str()) {
                 username = json_data
                     .get("body")
-                    .and_then(|data| data.as_str())
+                    .and_then(|v| v.as_str())
                     .unwrap()
                     .to_string();
                 if config.is_valid_username(&username) {
@@ -168,4 +162,22 @@ async fn validate_username(
             return Ok(username);
         }
     }
+}
+
+fn handle_new_connection(username: String) {
+    let _conn_message = conn_message!(&username);
+}
+
+fn handle_disconnection(
+    username: String,
+    sender: &mut Sender<(String, Option<SocketAddr>)>,
+    client_addr: SocketAddr,
+) {
+    let disc_message = disc_message!(&username);
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
+    let request = request_to_json!(
+        "Connection",
+        serde_json::json!({ "data": disc_message, "date": now })
+    );
+    sender.send((request, Some(client_addr))).unwrap();
 }
