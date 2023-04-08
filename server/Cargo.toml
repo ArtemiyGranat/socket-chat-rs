@@ -13,3 +13,4 @@ simple_logger = "4.1.0"
 time = "0.3.20"
 sqlx = { version = "0.6", features = [ "runtime-tokio-rustls", "postgres", "macros" ] }
 dotenv = "0.15.0"
+lazy_static = "1.4.0"

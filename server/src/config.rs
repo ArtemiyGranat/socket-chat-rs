@@ -16,6 +16,7 @@ impl Default for Config {
         Self {
             server_address: "0.0.0.0:8080".to_string(),
             max_connections: 10,
+            // TODO: Add regex for username and message to avoid invalid data
             min_username_len: 1,
             max_username_len: 20,
             min_message_len: 1,

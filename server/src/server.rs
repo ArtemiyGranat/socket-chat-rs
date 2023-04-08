@@ -1,37 +1,40 @@
+use crate::client::Client;
 use crate::config::Config;
-use crate::Result;
-use crate::{conn_message, disc_message, request_to_json, response_to_json};
+use crate::{conn_message, disc_message, request_to_json, response_to_json, Result};
 use chrono::Utc;
 use log::info;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{tcp::ReadHalf, TcpListener, TcpStream},
+    net::{TcpListener, TcpStream},
     sync::broadcast::{self, Sender},
 };
 
-async fn init_server(config: &Config) -> Result<TcpListener> {
-    match TcpListener::bind(config.server_address.clone()).await {
+lazy_static::lazy_static! {
+    static ref CONFIG: Config = Config::default();
+}
+
+async fn init_server() -> Result<TcpListener> {
+    match TcpListener::bind(CONFIG.server_address.clone()).await {
         Ok(listener) => {
-            info!("Server is listening on {}", config.server_address);
+            info!("Server is listening on {}", CONFIG.server_address);
             Ok(listener)
         }
         Err(_) => Err("Could not bind the server to this address".into()),
     }
 }
 
-pub async fn run_server(config: &Config) -> Result<()> {
-    let listener = init_server(config).await?;
-    let (sender, _) = broadcast::channel(config.max_connections);
+pub async fn run_server() -> Result<()> {
+    let listener = init_server().await?;
+    let (sender, _) = broadcast::channel(CONFIG.max_connections);
     loop {
-        let config = config.clone();
         let (client_socket, _) = listener.accept().await.unwrap();
         let mut sender = sender.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = handle_client(&config, client_socket, &mut sender).await {
+            if let Err(e) = handle_client(client_socket, &mut sender).await {
                 info!("{}", e);
             }
         });
@@ -39,7 +42,6 @@ pub async fn run_server(config: &Config) -> Result<()> {
 }
 
 async fn handle_client(
-    config: &Config,
     mut client_socket: TcpStream,
     sender: &mut Sender<(String, Option<SocketAddr>)>,
 ) -> Result<()> {
@@ -48,28 +50,27 @@ async fn handle_client(
     let (reader, mut writer) = client_socket.split();
     let mut reader = BufReader::new(reader);
 
-    let username = validate_username(config, &mut reader, &mut writer, client_addr).await?;
-    let _conn_message = conn_message!(&username);
+    let username = validate_username(&mut reader, &mut writer, client_addr).await?;
+    let client = Client::new(username, client_addr);
+    let _conn_message = conn_message!(&client.username);
     info!(
         "{} ({}) has been connected to the server",
-        username, client_addr
+        client.username, client_addr
     );
     // TODO: Send connection message to all other clients (_conn_message should be used).
-    handle_new_connection(username.clone());
+    handle_new_connection(client.username.clone());
 
     let mut request = String::new();
     loop {
         tokio::select! {
             request_size = reader.read_line(&mut request) => {
                 if let Ok(0) = request_size {
-                    handle_disconnection(username, sender, client_addr);
+                    handle_disconnection(client.username, sender, client_addr);
                     break Ok(())
                 }
                 handle_request(
-                    config,
                     request_size,
-                    client_addr,
-                    username.clone(),
+                    &client,
                     &mut request,
                     sender,
                     &mut writer
@@ -90,30 +91,30 @@ async fn handle_client(
     }
 }
 
-// TODO: Add request handling for the future
-async fn handle_request<W: AsyncWrite + Unpin>(
-    config: &Config,
+async fn handle_request<W>(
     size: std::io::Result<usize>,
-    client_addr: SocketAddr,
-    username: String,
+    client: &Client,
     request: &mut String,
     sender: &mut Sender<(String, Option<SocketAddr>)>,
     writer: &mut W,
-) -> Result<()> {
+) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
     if let Err(e) = size {
         return Err(e.into());
     }
     let json_request: Value = serde_json::from_str(request).unwrap();
     let message = json_request.get("body").and_then(|v| v.as_str());
 
-    if config.is_valid_message(message, client_addr)? {
-        info!("{} sent a message to the server", username);
+    if CONFIG.is_valid_message(message, client.client_addr)? {
+        info!("{} sent a message to the server", client.username);
         let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
         let request = request_to_json!(
             "SendMessage",
-            json!({ "data": message.unwrap().to_string().trim(), "sender": username, "date": now })
+            json!({ "data": message.unwrap().to_string().trim(), "sender": client.username, "date": now })
         );
-        sender.send((request, Some(client_addr))).unwrap();
+        sender.send((request, Some(client.client_addr))).unwrap();
     } else {
         let response = response_to_json!(400, "InvalidMessage");
         write_data(writer, response).await?;
@@ -123,12 +124,15 @@ async fn handle_request<W: AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn validate_username<W: AsyncWrite + Unpin>(
-    config: &Config,
-    reader: &mut BufReader<ReadHalf<'_>>,
+async fn validate_username<W, R>(
+    reader: &mut R,
     writer: &mut W,
     client_addr: SocketAddr,
-) -> Result<String> {
+) -> Result<String>
+where
+    R: AsyncBufRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
     loop {
         let mut request = String::new();
         let mut username: Option<&str> = None;
@@ -142,7 +146,7 @@ async fn validate_username<W: AsyncWrite + Unpin>(
         let (response, status_code) = match json_request.get("method").and_then(|v| v.as_str()) {
             Some("LogInUsername") => {
                 username = json_request.get("body").and_then(|v| v.as_str());
-                if config.is_valid_username(username, client_addr)? {
+                if CONFIG.is_valid_username(username, client_addr)? {
                     (response_to_json!(200, "OK"), 200)
                 } else {
                     (response_to_json!(400, "InvalidUsername"), 400)
@@ -177,7 +181,10 @@ fn handle_disconnection(
     sender.send((request, Some(client_addr))).unwrap();
 }
 
-async fn write_data<W: AsyncWrite + Unpin>(writer: &mut W, data: String) -> Result<()> {
+async fn write_data<W>(writer: &mut W, data: String) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
     writer.write_all(data.as_bytes()).await?;
     Ok(())
 }
