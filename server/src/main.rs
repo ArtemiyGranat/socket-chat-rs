@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    if let Err(e) = server::run_server().await {
+    if let Err(e) = server::run().await {
         error!("{}", e);
     };
     Ok(())

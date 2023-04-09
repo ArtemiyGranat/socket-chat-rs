@@ -16,7 +16,7 @@ lazy_static::lazy_static! {
     static ref CONFIG: Config = Config::default();
 }
 
-async fn init_server() -> Result<TcpListener> {
+async fn bind_server() -> Result<TcpListener> {
     match TcpListener::bind(CONFIG.server_address.clone()).await {
         Ok(listener) => {
             info!("Server is listening on {}", CONFIG.server_address);
@@ -26,8 +26,8 @@ async fn init_server() -> Result<TcpListener> {
     }
 }
 
-pub async fn run_server() -> Result<()> {
-    let listener = init_server().await?;
+pub async fn run() -> Result<()> {
+    let listener = bind_server().await?;
     let (sender, _) = broadcast::channel(CONFIG.max_connections);
     loop {
         let (client_socket, _) = listener.accept().await.unwrap();
@@ -43,7 +43,7 @@ pub async fn run_server() -> Result<()> {
 
 async fn handle_client(
     mut client_socket: TcpStream,
-    sender: &mut Sender<(String, Option<SocketAddr>)>,
+    sender: &mut Sender<(String, SocketAddr)>,
 ) -> Result<()> {
     let mut receiver = sender.subscribe();
     let client_addr = client_socket.peer_addr().unwrap();
@@ -52,38 +52,22 @@ async fn handle_client(
 
     let username = validate_username(&mut reader, &mut writer, client_addr).await?;
     let client = Client::new(username, client_addr);
-    let _conn_message = conn_message!(&client.username);
-    info!(
-        "{} ({}) has been connected to the server",
-        client.username, client_addr
-    );
-    // TODO: Send connection message to all other clients (_conn_message should be used).
-    handle_new_connection(client.username.clone());
+
+    handle_new_connection(&client, sender);
 
     let mut request = String::new();
     loop {
         tokio::select! {
             request_size = reader.read_line(&mut request) => {
                 if let Ok(0) = request_size {
-                    handle_disconnection(client.username, sender, client_addr);
+                    handle_disconnection(&client, sender);
                     break Ok(())
                 }
-                handle_request(
-                    request_size,
-                    &client,
-                    &mut request,
-                    sender,
-                    &mut writer
-                )
-                .await?;
+                handle_request(request_size, &client, &mut request, sender, &mut writer).await?;
             }
             outgoing_data = receiver.recv() => {
                 let (message, sender_addr) = outgoing_data.unwrap();
-                if let Some(sender_addr) = sender_addr {
-                    if client_addr != sender_addr {
-                        write_data(&mut writer, message).await?;
-                    }
-                } else {
+                if client_addr != sender_addr {
                     write_data(&mut writer, message).await?;
                 }
             }
@@ -95,7 +79,7 @@ async fn handle_request<W>(
     size: std::io::Result<usize>,
     client: &Client,
     request: &mut String,
-    sender: &mut Sender<(String, Option<SocketAddr>)>,
+    sender: &mut Sender<(String, SocketAddr)>,
     writer: &mut W,
 ) -> Result<()>
 where
@@ -114,7 +98,7 @@ where
             "SendMessage",
             json!({ "data": message.unwrap().to_string().trim(), "sender": client.username, "date": now })
         );
-        sender.send((request, Some(client.client_addr))).unwrap();
+        sender.send((request, client.client_addr)).unwrap();
     } else {
         let response = response_to_json!(400, "InvalidMessage");
         write_data(writer, response).await?;
@@ -162,23 +146,27 @@ where
     }
 }
 
-fn handle_new_connection(username: String) {
-    let _conn_message = conn_message!(&username);
+// TODO: handle_new_connection and handle_disconnection should be written as one function for two cases
+fn handle_new_connection(client: &Client, sender: &mut Sender<(String, SocketAddr)>) {
+    let conn_message = conn_message!(&client.username);
+    info!(
+        "{} ({}) has been connected to the server",
+        client.username, client.client_addr
+    );
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
+    let request = request_to_json!("Connection", json!({ "data": conn_message, "date": now }));
+    sender.send((request, client.client_addr)).unwrap();
 }
 
-fn handle_disconnection(
-    username: String,
-    sender: &mut Sender<(String, Option<SocketAddr>)>,
-    client_addr: SocketAddr,
-) {
-    let disc_message = disc_message!(&username);
+fn handle_disconnection(client: &Client, sender: &mut Sender<(String, SocketAddr)>) {
+    let disc_message = disc_message!(&client.username);
     info!(
         "{} ({}) has been disconnected from the server",
-        username, client_addr
+        client.username, client.client_addr
     );
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
     let request = request_to_json!("Connection", json!({ "data": disc_message, "date": now }));
-    sender.send((request, Some(client_addr))).unwrap();
+    sender.send((request, client.client_addr)).unwrap();
 }
 
 async fn write_data<W>(writer: &mut W, data: String) -> Result<()>
