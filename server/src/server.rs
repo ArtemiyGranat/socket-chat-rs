@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::config::Config;
-use crate::{conn_message, disc_message, request_to_json, response_to_json, Result};
+use crate::{request_to_json, response_to_json, Result};
 use chrono::Utc;
 use futures::SinkExt;
 use log::info;
@@ -17,6 +17,7 @@ lazy_static::lazy_static! {
     static ref CONFIG: Config = Config::default();
 }
 
+// TODO: Check how to deal with the private messages if you have only SocketAddr and no username
 type Clients = Arc<Mutex<HashMap<SocketAddr, mpsc::UnboundedSender<String>>>>;
 
 async fn bind_server() -> Result<TcpListener> {
@@ -46,10 +47,10 @@ pub async fn run() -> Result<()> {
 async fn handle_client(stream: TcpStream, addr: SocketAddr, clients: &Clients) -> Result<()> {
     let mut lines = Framed::new(stream, LinesCodec::new());
 
-    let username = validate_username(&mut lines, addr).await?;
+    let username = authorize_user(&mut lines, addr).await?;
     let mut client = Client::new(clients, username, addr).await;
 
-    handle_new_connection(clients, &client).await;
+    new_connection_info(clients, &client).await;
 
     loop {
         tokio::select! {
@@ -68,7 +69,7 @@ async fn handle_client(stream: TcpStream, addr: SocketAddr, clients: &Clients) -
         }
     }
 
-    handle_disconnection(clients, &client).await;
+    disconnection_info(clients, &client).await;
     Ok(())
 }
 
@@ -92,7 +93,7 @@ async fn handle_request(clients: &Clients, client: &Client, request: &str) -> Re
     Ok(())
 }
 
-async fn validate_username(
+async fn authorize_user(
     lines: &mut Framed<TcpStream, LinesCodec>,
     client_addr: SocketAddr,
 ) -> Result<String> {
@@ -129,26 +130,26 @@ async fn validate_username(
     }
 }
 
-async fn handle_new_connection(clients: &Clients, client: &Client) {
-    let conn_message = conn_message!(&client.username);
+async fn new_connection_info(clients: &Clients, client: &Client) {
+    let info = format!("{} has been connected to the server", &client.username);
     info!(
         "{} ({}) has been connected to the server",
         client.username, client.addr
     );
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
-    let request = request_to_json!("Connection", json!({ "data": conn_message, "date": now }));
+    let request = request_to_json!("Connection", json!({ "data": info, "date": now }));
 
     broadcast(clients, client.addr, &request).await;
 }
 
-async fn handle_disconnection(clients: &Clients, client: &Client) {
-    let disc_message = disc_message!(&client.username);
+async fn disconnection_info(clients: &Clients, client: &Client) {
+    let info = format!("{} has been disconnected from the server", &client.username);
     info!(
         "{} ({}) has been disconnected from the server",
         client.username, client.addr
     );
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
-    let request = request_to_json!("Connection", json!({ "data": disc_message, "date": now }));
+    let request = request_to_json!("Connection", json!({ "data": info, "date": now }));
 
     broadcast(clients, client.addr, &request).await;
 }
@@ -162,12 +163,11 @@ async fn broadcast(clients: &Clients, sender: SocketAddr, request: &str) {
     }
 }
 
-// TODO: Optimize it
 async fn send_targeted(clients: &Clients, target: SocketAddr, request: &str) {
     let mut clients = clients.lock().await;
-    for client in clients.iter_mut() {
-        if *client.0 == target {
-            client.1.send(request.into()).unwrap();
-        }
-    }
+    clients
+        .get_mut(&target)
+        .unwrap()
+        .send(request.into())
+        .unwrap();
 }

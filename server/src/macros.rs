@@ -1,18 +1,4 @@
 #[macro_export]
-macro_rules! conn_message {
-    ($username:expr) => {{
-        format!("{} has been connected to the server", $username)
-    }};
-}
-
-#[macro_export]
-macro_rules! disc_message {
-    ($username:expr) => {{
-        format!("{} has been disconnected from the server", $username)
-    }};
-}
-
-#[macro_export]
 macro_rules! response_to_json {
     ($status_code:expr, $message:expr) => {{
         let response = serde_json::json!({ "type": "response", "status_code": $status_code, "message": $message });
