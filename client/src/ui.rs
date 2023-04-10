@@ -12,15 +12,50 @@ use tui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+const MIN_WIDTH: u16 = 80;
+const MIN_HEIGHT: u16 = 24;
+
 pub(crate) fn ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
-    if let ClientState::LoggingIn = client.client_state {
-        log_screen(f, client);
+    let (w, h) = (f.size().width, f.size().height);
+    if w < MIN_WIDTH || h < MIN_HEIGHT {
+        too_small_screen(f, w, h);
     } else {
-        chat_screen(f, client);
+        if let ClientState::LoggingIn = client.client_state {
+            log_screen(f, client);
+        } else {
+            chat_screen(f, client);
+        }
+        if client.error_handler.is_some() {
+            error_block(f, client);
+        }
     }
-    if client.error_handler.is_some() {
-        error_block(f, client);
-    }
+}
+
+fn too_small_screen<B: Backend>(f: &mut Frame<B>, w: u16, h: u16) {
+    let text = vec![
+        Spans::from("Terminal size is too small:"),
+        Spans::from(vec![
+            Span::raw("Width = "),
+            Span::styled(format!("{}", w), Style::default().fg(Color::Green)),
+            Span::raw(", height = "),
+            Span::styled(format!("{}", h), Style::default().fg(Color::Green)),
+        ]),
+        Spans::from("Needed for current user interface:"),
+        Spans::from(vec![
+            Span::raw("Width = "),
+            Span::styled(format!("{}", MIN_WIDTH), Style::default().fg(Color::Green)),
+            Span::raw(", height = "),
+            Span::styled(format!("{}", MIN_HEIGHT), Style::default().fg(Color::Green)),
+        ]),
+    ];
+
+    let paragraph = Paragraph::new(text.clone())
+        .block(Block::default())
+        .alignment(tui::layout::Alignment::Center)
+        .wrap(Wrap { trim: true });
+    let area = centered_rect(80, 40, f.size());
+    f.render_widget(Clear, area);
+    f.render_widget(paragraph, area);
 }
 
 fn log_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
@@ -157,8 +192,6 @@ fn format_message(message: &Message) -> ListItem {
     );
     ListItem::new(vec![Spans::from(vec![date, sender, data])])
 }
-
-
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()

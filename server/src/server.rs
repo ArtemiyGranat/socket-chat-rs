@@ -108,17 +108,12 @@ async fn authorize_user(
     loop {
         let mut username = None;
         let request = match lines.next().await {
-            Some(Ok(request)) if request.is_empty() => {
-                return Err(
-                    format!("{} disconnected before entering username", client_addr).into(),
-                );
-            }
             Some(Ok(request)) => request,
             Some(Err(e)) => {
                 return Err(format!("Invalid request from {client_addr}: {e}").into());
             }
             None => {
-                return Err(format!("Could not get a request from {client_addr}").into());
+                return Err(format!("{client_addr} disconnected before entering username").into());
             }
         };
 
