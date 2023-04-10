@@ -76,6 +76,7 @@ async fn handle_client(stream: TcpStream, addr: SocketAddr, clients: &Clients) -
         }
     }
 
+    clients.lock().await.remove(&addr);
     disconnection_info(clients, &client).await?;
     Ok(())
 }
@@ -134,10 +135,9 @@ async fn authorize_user(
             _ => (response_to_json!(400, "BadRequest"), 400),
         };
 
-        lines
-            .send(&response)
-            .await
-            .map_err(|e| format!("Could not send a message to {client_addr}: {e}"))?;
+        if let Err(e) = lines.send(&response).await {
+            info!("Could not send a message to {client_addr}: {e}");
+        }
 
         if status_code == 200 {
             return Ok(username.unwrap().to_string());
@@ -175,10 +175,9 @@ async fn broadcast(clients: &Clients, sender: SocketAddr, request: &str) -> Resu
     let mut clients = clients.lock().await;
     for client in clients.iter_mut() {
         if *client.0 != sender {
-            client
-                .1
-                .send(request.into())
-                .map_err(|e| format!("Could not send a message to {}: {e}", client.0))?;
+            if let Err(e) = client.1.send(request.into()) {
+                info!("Could not send a message to {}: {e}", client.0);
+            }
         }
     }
     Ok(())
@@ -187,9 +186,9 @@ async fn broadcast(clients: &Clients, sender: SocketAddr, request: &str) -> Resu
 async fn send_targeted(clients: &Clients, target: SocketAddr, request: &str) -> Result<()> {
     let mut clients = clients.lock().await;
     if let Some(client) = clients.get_mut(&target) {
-        client
-            .send(request.into())
-            .map_err(|e| format!("Could not send a message to {target}: {e}"))?;
+        if let Err(e) = client.send(request.into()) {
+            info!("Could not send a message to {target}: {e}");
+        }
     } else {
         return Err(format!("Could not find a user: {}", target).into());
     }
