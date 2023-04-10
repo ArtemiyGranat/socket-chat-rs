@@ -1,17 +1,21 @@
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use tokio::sync::{mpsc, Mutex};
 
-#[derive(Clone)]
 pub struct Client {
     pub username: String,
-    pub client_addr: SocketAddr,
+    pub addr: SocketAddr,
+    pub rx: mpsc::UnboundedReceiver<String>,
 }
 
-// TODO: Use client to avoid many function arguments
 impl Client {
-    pub fn new(username: String, client_addr: SocketAddr) -> Self {
-        Self {
-            username,
-            client_addr,
-        }
+    pub async fn new(
+        clients: &Arc<Mutex<HashMap<SocketAddr, mpsc::UnboundedSender<String>>>>,
+        username: String,
+        addr: SocketAddr,
+    ) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+        clients.lock().await.insert(addr, tx);
+
+        Self { username, addr, rx }
     }
 }

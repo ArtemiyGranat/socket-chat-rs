@@ -1,16 +1,14 @@
 #[macro_export]
 macro_rules! conn_message {
     ($username:expr) => {{
-        let conn_message = format!("{} has been connected to the server\n", $username);
-        conn_message
+        format!("{} has been connected to the server", $username)
     }};
 }
 
 #[macro_export]
 macro_rules! disc_message {
     ($username:expr) => {{
-        let disc_message = format!("{} has been disconnected from the server\n", $username);
-        disc_message
+        format!("{} has been disconnected from the server", $username)
     }};
 }
 
@@ -18,7 +16,7 @@ macro_rules! disc_message {
 macro_rules! response_to_json {
     ($status_code:expr, $message:expr) => {{
         let response = serde_json::json!({ "type": "response", "status_code": $status_code, "message": $message });
-        format!("{}\n", response)
+        response.to_string()
     }}
 }
 
@@ -31,6 +29,6 @@ macro_rules! request_to_json {
             "MessageRead" => unimplemented!(),
             &_ => unreachable!()
         };
-        format!("{}\n", request)
+        request.to_string()
     }}
 }
