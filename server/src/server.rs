@@ -26,7 +26,7 @@ async fn bind_server() -> Result<TcpListener> {
             info!("Server is listening on {}", CONFIG.server_address);
             Ok(listener)
         }
-        Err(_) => Err("Could not bind the server to this address".into()),
+        Err(e) => Err(format!("Could not bind the server to this address: {e}").into()),
     }
 }
 
@@ -38,7 +38,7 @@ pub async fn run() -> Result<()> {
         let clients = Arc::clone(&clients);
         tokio::spawn(async move {
             if let Err(e) = handle_client(stream, addr, &clients).await {
-                info!("{}", e);
+                info!("{e}");
             }
         });
     }
@@ -50,26 +50,33 @@ async fn handle_client(stream: TcpStream, addr: SocketAddr, clients: &Clients) -
     let username = authorize_user(&mut lines, addr).await?;
     let mut client = Client::new(clients, username, addr).await;
 
-    new_connection_info(clients, &client).await;
+    new_connection_info(clients, &client).await?;
 
     loop {
         tokio::select! {
             Some(msg) = client.rx.recv() => {
-                lines.send(&msg).await?;
+                if let Err(e) = lines.send(&msg).await {
+                    info!("Could not send a message to {}: {e}", client.addr);
+                    break;
+                }
             }
             request = lines.next() => match request {
                 Some(Ok(request)) => {
-                    handle_request(clients, &client, &request).await?;
+                    if let Err(e) = handle_request(clients, &client, &request).await {
+                        info!("Error with {} occured: {e}", client.addr);
+                        break;
+                    }
                 }
                 Some(Err(e)) => {
-                    return Err(e.into());
+                    info!("Invalid request from {}: {e}", client.addr);
+                    break;
                 }
                 None => break,
             }
         }
     }
 
-    disconnection_info(clients, &client).await;
+    disconnection_info(clients, &client).await?;
     Ok(())
 }
 
@@ -84,10 +91,10 @@ async fn handle_request(clients: &Clients, client: &Client, request: &str) -> Re
             "SendMessage",
             json!({ "data": message.unwrap().to_string().trim(), "sender": client.username, "date": now })
         );
-        broadcast(clients, client.addr, &request).await;
+        broadcast(clients, client.addr, &request).await?;
     } else {
         let response = response_to_json!(400, "InvalidMessage");
-        send_targeted(clients, client.addr, &response).await;
+        send_targeted(clients, client.addr, &response).await?;
     }
 
     Ok(())
@@ -106,8 +113,12 @@ async fn authorize_user(
                 );
             }
             Some(Ok(request)) => request,
-            // TODO: Handle errors
-            _ => unreachable!(),
+            Some(Err(e)) => {
+                return Err(format!("Invalid request from {client_addr}: {e}").into());
+            }
+            None => {
+                return Err(format!("Could not get a request from {client_addr}").into());
+            }
         };
 
         let json_request: Value = serde_json::from_str(&request).unwrap();
@@ -123,14 +134,18 @@ async fn authorize_user(
             _ => (response_to_json!(400, "BadRequest"), 400),
         };
 
-        lines.send(&response).await?;
+        lines
+            .send(&response)
+            .await
+            .map_err(|e| format!("Could not send a message to {client_addr}: {e}"))?;
+
         if status_code == 200 {
             return Ok(username.unwrap().to_string());
         }
     }
 }
 
-async fn new_connection_info(clients: &Clients, client: &Client) {
+async fn new_connection_info(clients: &Clients, client: &Client) -> Result<()> {
     let info = format!("{} has been connected to the server", &client.username);
     info!(
         "{} ({}) has been connected to the server",
@@ -139,10 +154,11 @@ async fn new_connection_info(clients: &Clients, client: &Client) {
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
     let request = request_to_json!("Connection", json!({ "data": info, "date": now }));
 
-    broadcast(clients, client.addr, &request).await;
+    broadcast(clients, client.addr, &request).await?;
+    Ok(())
 }
 
-async fn disconnection_info(clients: &Clients, client: &Client) {
+async fn disconnection_info(clients: &Clients, client: &Client) -> Result<()> {
     let info = format!("{} has been disconnected from the server", &client.username);
     info!(
         "{} ({}) has been disconnected from the server",
@@ -151,23 +167,31 @@ async fn disconnection_info(clients: &Clients, client: &Client) {
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S %z").to_string();
     let request = request_to_json!("Connection", json!({ "data": info, "date": now }));
 
-    broadcast(clients, client.addr, &request).await;
+    broadcast(clients, client.addr, &request).await?;
+    Ok(())
 }
 
-async fn broadcast(clients: &Clients, sender: SocketAddr, request: &str) {
+async fn broadcast(clients: &Clients, sender: SocketAddr, request: &str) -> Result<()> {
     let mut clients = clients.lock().await;
     for client in clients.iter_mut() {
         if *client.0 != sender {
-            client.1.send(request.into()).unwrap();
+            client
+                .1
+                .send(request.into())
+                .map_err(|e| format!("Could not send a message to {}: {e}", client.0))?;
         }
     }
+    Ok(())
 }
 
-async fn send_targeted(clients: &Clients, target: SocketAddr, request: &str) {
+async fn send_targeted(clients: &Clients, target: SocketAddr, request: &str) -> Result<()> {
     let mut clients = clients.lock().await;
-    clients
-        .get_mut(&target)
-        .unwrap()
-        .send(request.into())
-        .unwrap();
+    if let Some(client) = clients.get_mut(&target) {
+        client
+            .send(request.into())
+            .map_err(|e| format!("Could not send a message to {target}: {e}"))?;
+    } else {
+        return Err(format!("Could not find a user: {}", target).into());
+    }
+    Ok(())
 }
