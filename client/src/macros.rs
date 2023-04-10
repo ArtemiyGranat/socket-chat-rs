@@ -7,6 +7,6 @@ macro_rules! request_to_json {
             "LogInPassword" | "RegisterUsername" | "MessageRead" | "GetHistory" => unimplemented!(),
             &_ => unreachable!()
         };
-        format!("{}\n", request)
+        request.to_string()
     }}
 }

@@ -1,38 +1,17 @@
 use crate::message::Message;
+use crate::model::{ClientState, Command, InputMode, SERVER_SHUTDOWN_MESSAGE};
 use crate::request_to_json;
 use crate::ui::ui;
 use chrono::Local;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, SinkExt};
 use serde_json::Value;
 use std::io;
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
-    net::TcpStream,
-    sync::mpsc::{self, Sender},
-};
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::{net::TcpStream, sync::mpsc};
+use tokio_stream::StreamExt;
+use tokio_util::codec::{Framed, LinesCodec};
 use tui::{backend::Backend, Terminal};
-
-const SERVER_SHUTDOWN_MESSAGE: &str = "Server is shutting down, app will be closed in 10 seconds";
-
-#[derive(Clone, Copy)]
-pub(crate) enum ClientState {
-    LoggingIn,
-    LoggedIn,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum InputMode {
-    Normal,
-    Insert,
-}
-
-#[derive(Debug)]
-enum Command {
-    Exit,
-    SendMessage(String),
-    LogInUsername(String),
-}
 
 pub(crate) struct Client {
     pub username: String,
@@ -60,43 +39,43 @@ impl Client {
     pub(crate) async fn run_client<B: Backend>(
         mut self,
         terminal: &mut Terminal<B>,
-        socket: &mut TcpStream,
+        stream: TcpStream,
     ) -> io::Result<()> {
         let mut event_reader = EventStream::new();
-        let (stream_reader, mut writer) = socket.split();
-        let mut stream_reader = BufReader::new(stream_reader);
-        let (sender, mut receiver) = mpsc::channel::<Command>(1);
-        let mut data = String::new();
+        let mut lines = Framed::new(stream, LinesCodec::new());
+        let (tx, mut rx) = mpsc::unbounded_channel::<Command>();
 
         loop {
             terminal.draw(|f| ui(f, &mut self))?;
             tokio::select! {
-                received_data_size = stream_reader.read_line(&mut data) => {
-                    if let Ok(0) = received_data_size {
-                        self.handle_server_shutdown();
-                        break Ok(())
-                    }
-                    self.handle_received_data(&data);
-                    data.clear();
-                }
-                command = receiver.recv() => {
-                    match command.unwrap() {
+                Some(command) = rx.recv() => {
+                    match command {
                         Command::SendMessage(data) => {
                             let request = request_to_json!("SendMessage", data);
-                            self.send_request(&mut writer, &request).await.unwrap();
+                            self.send_request(&mut lines, &request).await.unwrap();
                         },
                         Command::LogInUsername(username) => {
                             let request = request_to_json!("LogInUsername", username);
-                            self.send_request(&mut writer, &request).await.unwrap();
+                            self.send_request(&mut lines, &request).await.unwrap();
                         }
                         Command::Exit => break Ok(()),
                     }
-                }
+                },
+                request = lines.next() => match request {
+                    Some(Ok(received_data)) => self.handle_received_data(&received_data),
+                    Some(Err(e)) => {
+                        self.error_handler = Some(format!("Invalid request: {e}"));
+                    }
+                    None => {
+                        self.handle_server_shutdown();
+                        break Ok(())
+                    }
+                },
                 result = event_reader.next().fuse() => {
                     if let Ok(Event::Key(key)) = result.unwrap() {
-                        self.handle_input_event(key, &sender).await;
+                        self.handle_input_event(key, &tx).await;
                     }
-                }
+                },
             }
         }
     }
@@ -149,11 +128,11 @@ impl Client {
         }
     }
 
-    async fn handle_input_event(&mut self, key: KeyEvent, sender: &Sender<Command>) {
+    async fn handle_input_event(&mut self, key: KeyEvent, tx: &UnboundedSender<Command>) {
         if self.error_handler.is_none() {
             match self.input_mode {
-                InputMode::Normal => self.handle_normal_mode(key, sender).await,
-                InputMode::Insert => self.handle_insert_mode(key, sender).await,
+                InputMode::Normal => self.handle_normal_mode(key, tx).await,
+                InputMode::Insert => self.handle_insert_mode(key, tx).await,
             }
         } else if let KeyCode::Char('q') = key.code {
             self.error_handler = None;
@@ -161,19 +140,19 @@ impl Client {
         }
     }
 
-    async fn handle_normal_mode(&mut self, key: KeyEvent, sender: &Sender<Command>) {
+    async fn handle_normal_mode(&mut self, key: KeyEvent, tx: &UnboundedSender<Command>) {
         match key.code {
             KeyCode::Char('i') => {
                 self.input_mode = InputMode::Insert;
             }
             KeyCode::Char('q') => {
-                sender.send(Command::Exit).await.unwrap();
+                tx.send(Command::Exit).unwrap();
             }
             _ => {}
         }
     }
 
-    async fn handle_insert_mode(&mut self, key: KeyEvent, sender: &Sender<Command>) {
+    async fn handle_insert_mode(&mut self, key: KeyEvent, tx: &UnboundedSender<Command>) {
         match key.code {
             KeyCode::Enter => {
                 let command = if let ClientState::LoggedIn = self.client_state {
@@ -181,7 +160,7 @@ impl Client {
                 } else {
                     Command::LogInUsername(self.input.clone())
                 };
-                sender.send(command).await.unwrap();
+                tx.send(command).unwrap();
 
                 if let ClientState::LoggedIn = self.client_state {
                     let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
@@ -208,12 +187,12 @@ impl Client {
         }
     }
 
-    async fn send_request<W: AsyncWrite + Unpin>(
+    async fn send_request(
         &self,
-        mut writer: W,
+        lines: &mut Framed<TcpStream, LinesCodec>,
         request: &str,
     ) -> io::Result<()> {
-        writer.write_all(request.as_bytes()).await?;
+        lines.send(request).await.unwrap();
         Ok(())
     }
 }

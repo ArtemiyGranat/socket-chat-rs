@@ -12,10 +12,11 @@ mod client;
 mod macros;
 mod message;
 mod ui;
+mod model;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let mut socket = match TcpStream::connect("0.0.0.0:8080").await {
+    let socket = match TcpStream::connect("0.0.0.0:8080").await {
         Ok(socket) => socket,
         Err(_) => {
             eprintln!("[ERROR] Server is offline. Try again later");
@@ -30,7 +31,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let client = Client::default();
-    if let Err(e) = client.run_client(&mut terminal, &mut socket).await {
+    if let Err(e) = client.run_client(&mut terminal, socket).await {
         eprintln!("[ERROR] {}", e);
     }
 

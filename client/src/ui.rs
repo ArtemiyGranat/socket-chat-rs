@@ -1,6 +1,7 @@
 use crate::{
-    client::{Client, ClientState, InputMode},
+    client::Client,
     message::Message,
+    model::{ClientState, InputMode},
 };
 use tui::{
     backend::Backend,

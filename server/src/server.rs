@@ -109,12 +109,8 @@ async fn authorize_user(
         let mut username = None;
         let request = match lines.next().await {
             Some(Ok(request)) => request,
-            Some(Err(e)) => {
-                return Err(format!("Invalid request from {client_addr}: {e}").into());
-            }
-            None => {
-                return Err(format!("{client_addr} disconnected before entering username").into());
-            }
+            Some(Err(e)) => return Err(format!("Invalid request from {client_addr}: {e}").into()),
+            None => return Err(format!("{client_addr} disconnected before entering username").into()),
         };
 
         let json_request: Value = serde_json::from_str(&request).unwrap();

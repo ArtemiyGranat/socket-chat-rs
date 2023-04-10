@@ -14,3 +14,5 @@ crossterm = { version = "0.26", features = ['event-stream'] }
 tui = { version = "0.19", default-features = false, features = ['crossterm'] }
 unicode-width = "0.1.8"
 futures = "*"
+tokio-util = { version = "0.7.7", features = ["codec"] }
+tokio-stream = { version = "0.1.12" }
