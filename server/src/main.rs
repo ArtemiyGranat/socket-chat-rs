@@ -1,11 +1,10 @@
+mod client;
 mod config;
 mod db;
 mod macros;
 mod server;
 
-use config::Config;
 use log::{error, LevelFilter};
-use server::*;
 use simple_logger::SimpleLogger;
 use time::macros::format_description;
 
@@ -24,13 +23,12 @@ async fn main() -> Result<()> {
     let _pool = match db::connect().await {
         Some(pool) => pool,
         None => {
-            error!("Could not connect to the database");
+            error!("Could not connect to the database, check your .env file");
             return Ok(());
-        },
+        }
     };
 
-    let config = Config::default();
-    if let Err(e) = run_server(&config).await {
+    if let Err(e) = server::run().await {
         error!("{}", e);
     };
     Ok(())

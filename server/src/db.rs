@@ -4,8 +4,7 @@ use sqlx::{
 };
 
 pub async fn connect() -> Option<Pool<Postgres>> {
-    // TODO: Switch from expect to log::error
-    dotenv::dotenv().expect("Unable to load environment variables from .env file");
+    dotenv::dotenv().ok()?;
     let db_url = std::env::var("DATABASE_URL").ok()?;
 
     PgPoolOptions::new().connect(&db_url).await.ok()
