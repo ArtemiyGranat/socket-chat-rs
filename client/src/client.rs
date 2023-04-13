@@ -1,7 +1,7 @@
 use crate::message::Message;
 use crate::model::{ClientState, Command, InputMode, SERVER_SHUTDOWN_MESSAGE};
 use crate::request_to_json;
-use crate::ui::ui;
+use crate::ui::chat;
 use chrono::Local;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
 use futures::{FutureExt, SinkExt};
@@ -46,7 +46,7 @@ impl Client {
         let (tx, mut rx) = mpsc::unbounded_channel::<Command>();
 
         loop {
-            terminal.draw(|f| ui(f, &mut self))?;
+            terminal.draw(|f| chat::ui(f, &mut self))?;
             tokio::select! {
                 Some(command) = rx.recv() => {
                     match command {

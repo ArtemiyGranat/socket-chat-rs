@@ -4,6 +4,7 @@ pub const SERVER_SHUTDOWN_MESSAGE: &str = "Server is shutting down, app will be 
 pub(crate) enum ClientState {
     LoggingIn,
     LoggedIn,
+    Registering,
 }
 
 #[derive(Clone, Copy)]
