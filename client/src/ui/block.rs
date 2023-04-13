@@ -88,3 +88,4 @@ pub(crate) fn too_small<B: Backend>(f: &mut Frame<B>, w: u16, h: u16) {
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
 }
+

@@ -1,7 +1,9 @@
-use crate::message::Message;
-use crate::model::{ClientState, Command, InputMode, SERVER_SHUTDOWN_MESSAGE};
-use crate::request_to_json;
-use crate::ui::chat;
+use crate::{
+    message::Message,
+    model::{ClientState, Command, InputMode, SERVER_SHUTDOWN_MESSAGE},
+    request_to_json,
+    ui::chat,
+};
 use chrono::Local;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent};
 use futures::{FutureExt, SinkExt};
@@ -130,9 +132,14 @@ impl Client {
 
     async fn handle_input_event(&mut self, key: KeyEvent, tx: &UnboundedSender<Command>) {
         if self.error_handler.is_none() {
-            match self.input_mode {
-                InputMode::Normal => self.handle_normal_mode(key, tx).await,
-                InputMode::Insert => self.handle_insert_mode(key, tx).await,
+            match self.client_state {
+                ClientState::LoggedIn => match self.input_mode {
+                    InputMode::Normal => self.handle_normal_mode(key, tx).await,
+                    InputMode::Insert => self.handle_insert_mode(key, tx).await,
+                },
+                ClientState::LoggingIn | ClientState::Registering => {
+                    self.handle_auth_events(key, tx).await
+                }
             }
         } else if let KeyCode::Char('q') = key.code {
             self.error_handler = None;
@@ -184,6 +191,22 @@ impl Client {
                 self.input_mode = InputMode::Normal;
             }
             _ => {}
+        }
+    }
+
+    async fn handle_auth_events(&mut self, key: KeyEvent, tx: &UnboundedSender<Command>) {
+        match key.code {
+            KeyCode::Down | KeyCode::Up | KeyCode::Char('j') | KeyCode::Char('k') => {
+                if let ClientState::LoggingIn = self.client_state {
+                    self.client_state = ClientState::Registering;
+                } else {
+                    self.client_state = ClientState::LoggingIn;
+                }
+            }
+            KeyCode::Enter => {
+                tx.send(Command::Exit).unwrap();
+            }
+            _ => unreachable!(),
         }
     }
 

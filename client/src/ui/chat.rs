@@ -1,8 +1,9 @@
-use super::{block::{error_block, input_block, message_block, too_small}, authorization::log_screen, util::{help_message, set_cursor}};
-use crate::{
-    client::Client,
-    model::ClientState,
+use super::{
+    authorization::{log_in_screen, log_screen},
+    block::{error_block, input_block, message_block, too_small},
+    util::{help_message, set_cursor},
 };
+use crate::{client::Client, model::ClientState};
 use tui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout},
@@ -18,14 +19,15 @@ pub(crate) fn ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     if w < MIN_WIDTH || h < MIN_HEIGHT {
         too_small(f, w, h);
     } else {
-        if let ClientState::LoggingIn = client.client_state {
-            log_screen(f, client);
-        } else {
-            chat_screen(f, client);
-        }
-        if client.error_handler.is_some() {
-            error_block(f, client);
-        }
+        // if let ClientState::LoggingIn = client.client_state {
+        //     log_in_screen(f, client);
+        // } else {
+        //     chat_screen(f, client);
+        // }
+        // if client.error_handler.is_some() {
+        //     error_block(f, client);
+        // }
+        log_screen(f, client);
     }
 }
 
