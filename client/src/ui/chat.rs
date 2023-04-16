@@ -1,13 +1,17 @@
 use super::{
-    authorization::{log_in_screen, log_screen},
+    authorization::{log_in_screen, menu_screen},
     block::{error_block, input_block, message_block, too_small},
     util::{help_message, set_cursor},
+    widgets::default_block,
 };
-use crate::{client::Client, model::ClientState};
+use crate::{
+    client::Client,
+    model::{ClientState, Stage::*},
+};
 use tui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, BorderType, Borders, List},
+    widgets::List,
     Frame,
 };
 
@@ -19,15 +23,16 @@ pub(crate) fn ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     if w < MIN_WIDTH || h < MIN_HEIGHT {
         too_small(f, w, h);
     } else {
-        // if let ClientState::LoggingIn = client.client_state {
-        //     log_in_screen(f, client);
-        // } else {
-        //     chat_screen(f, client);
-        // }
-        // if client.error_handler.is_some() {
-        //     error_block(f, client);
-        // }
-        log_screen(f, client);
+        match client.client_state {
+            ClientState::LoggingIn(Choosing) | ClientState::Registering(Choosing) => {
+                menu_screen(f, client)
+            }
+            ClientState::LoggingIn(_) | ClientState::Registering(_) => log_in_screen(f, client),
+            ClientState::LoggedIn => chat_screen(f, client),
+        }
+        if client.error_handler.is_some() {
+            error_block(f, client);
+        }
     }
 }
 
@@ -41,12 +46,7 @@ fn chat_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     let help_message = help_message(&client.input_mode);
 
     let messages = client.messages.clone();
-    let messages = List::new(message_block(&messages)).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title(help_message),
-    );
+    let messages = List::new(message_block(&messages)).block(default_block(help_message));
 
     let messages_limit = chunks[0].height - 2;
     if client.messages.len() > messages_limit as usize {
@@ -54,7 +54,7 @@ fn chat_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     }
     f.render_widget(messages, chunks[0]);
 
-    let input = input_block(client);
+    let input = input_block(client, "message".to_string());
     f.render_widget(input, chunks[1]);
     set_cursor(f, client, chunks[1]);
 }

@@ -113,6 +113,7 @@ async fn authorize_user(
             None => return Err(format!("{client_addr} disconnected before entering username").into()),
         };
 
+        // TODO: Handle it to prevent connections from the browser
         let json_request: Value = serde_json::from_str(&request).unwrap();
         let (response, status_code) = match json_request.get("method").and_then(|v| v.as_str()) {
             Some("LogInUsername") => {

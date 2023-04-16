@@ -15,3 +15,21 @@ pub async fn _add_user(pool: &Pool<Postgres>, name: &str) -> Result<PgQueryResul
         .execute(pool)
         .await
 }
+
+pub async fn _remove_user(pool: &Pool<Postgres>, name: &str) -> Result<PgQueryResult, sqlx::Error> {
+    sqlx::query!("delete from users where username = ($1)", name)
+        .execute(pool)
+        .await
+}
+
+// pub async fn _is_user_exists(
+//     pool: &Pool<Postgres>,
+//     name: &str,
+// ) -> Result<PgQueryResult, sqlx::Error> {
+//     sqlx::query!(
+//         "select exists (select 1 from users where username = ($1))",
+//         name
+//     )
+//     .fetch_one(pool)
+//     .await
+// }

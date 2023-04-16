@@ -10,4 +10,4 @@ RUN cargo +nightly build --release
 
 EXPOSE 8080
 
-CMD ["./target/release/server"]
+CMD ["cargo", "run", "--release"]

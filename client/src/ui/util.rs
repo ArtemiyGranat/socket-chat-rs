@@ -1,54 +1,40 @@
+use super::style::{bold, bold_colored, colored};
+use crate::{client::Client, message::Message, model::InputMode};
 use tui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style, Color},
-    text::{Span, Spans},
-    Frame, widgets::ListItem,
+    style::Color,
+    text::Span,
+    widgets::ListItem,
+    Frame,
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::{client::Client, model::InputMode, message::Message};
-
 pub(crate) fn format_message(message: &Message) -> ListItem {
-    let date = Span::styled(
-        format!("[{}] ", message.date),
-        Style::default()
-            .add_modifier(Modifier::BOLD)
-            .fg(Color::Rgb(216, 222, 233)),
-    );
+    let date = bold_colored(format!("[{}] ", message.date), Color::Rgb(216, 222, 233));
     let sender = message.sender.clone();
     let sender = sender
-        .map(|sender| {
-            Span::styled(
-                format!("[{}] ", sender),
-                Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .fg(Color::Rgb(129, 161, 193)),
-            )
-        })
-        .unwrap_or_else(|| Span::raw(""));
-    let data = Span::styled(
-        &message.data,
-        Style::default().fg(Color::Rgb(216, 222, 233)),
-    );
-    ListItem::new(vec![Spans::from(vec![date, sender, data])])
+        .map(|sender| bold_colored(format!("[{}] ", sender), Color::Rgb(129, 161, 193)))
+        .unwrap_or_else(|| "".into());
+    let data = colored(&message.data, Color::Rgb(216, 222, 233));
+    ListItem::new(vec![vec![date, sender, data].into()])
 }
 
 pub(crate) fn help_message(input_mode: &InputMode) -> Vec<Span> {
     match input_mode {
         InputMode::Normal => vec![
-            Span::raw(" Press "),
-            Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" to exit, "),
-            Span::styled("i", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" to enter the insert mode"),
+            " Press ".into(),
+            bold("q"),
+            " to exit, ".into(),
+            bold("i"),
+            " to enter the insert mode".into(),
         ],
         InputMode::Insert => vec![
-            Span::raw(" Press "),
-            Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" to enter the normal mode, "),
-            Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" to send a message"),
+            " Press ".into(),
+            bold("Esc"),
+            " to enter the normal mode, ".into(),
+            bold("Enter"),
+            " to send a message".into(),
         ],
     }
 }
