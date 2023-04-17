@@ -1,5 +1,5 @@
-use std::net::SocketAddr;
 use crate::Result;
+use std::net::SocketAddr;
 
 #[derive(Clone)]
 pub struct Config {
@@ -24,7 +24,11 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn is_valid_username(&self, username: Option<&str>, client_addr: SocketAddr) -> Result<bool> {
+    pub fn is_valid_username(
+        &self,
+        username: Option<&str>,
+        client_addr: SocketAddr,
+    ) -> Result<bool> {
         if let Some(username) = username {
             Ok((self.min_username_len..=self.max_username_len).contains(&username.len()))
         } else {
