@@ -17,3 +17,4 @@ lazy_static = "1.4.0"
 tokio-util = { version = "0.7.7", features = ["codec"] }
 tokio-stream = { version = "0.1.12" }
 futures = { version = "0.3.0" }
+regex = { version = "1" }
