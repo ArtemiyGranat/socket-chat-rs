@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     client::Client,
-    model::{ClientState, Stage::*},
+    model::{Stage::*, State},
 };
 use tui::{
     backend::Backend,
@@ -23,12 +23,10 @@ pub(crate) fn ui<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     if w < MIN_WIDTH || h < MIN_HEIGHT {
         too_small(f, w, h);
     } else {
-        match client.client_state {
-            ClientState::LoggingIn(Choosing) | ClientState::Registering(Choosing) => {
-                menu_screen(f, client)
-            }
-            ClientState::LoggingIn(_) | ClientState::Registering(_) => log_in_screen(f, client),
-            ClientState::LoggedIn => chat_screen(f, client),
+        match client.state {
+            State::LoggingIn(Choosing) | State::Registering(Choosing) => menu_screen(f, client),
+            State::LoggingIn(_) | State::Registering(_) => log_in_screen(f, client),
+            State::LoggedIn => chat_screen(f, client),
         }
         if client.error_handler.is_some() {
             error_block(f, client);

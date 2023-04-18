@@ -8,7 +8,7 @@ pub(crate) enum Stage {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum ClientState {
+pub(crate) enum State {
     LoggedIn,
     LoggingIn(Stage),
     Registering(Stage),

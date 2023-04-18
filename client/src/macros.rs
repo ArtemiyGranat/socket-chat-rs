@@ -2,11 +2,11 @@
 macro_rules! request_to_json {
     ($method:expr, $body:expr) => {{
         let request = match $method {
-            "SendMessage" | "LogInUsername" | "LogInPassword"
-                | "RegisterUsername" | "RegisterPassword" =>
-                serde_json::json!({ "type": "request_c2s", "method": $method, "body": $body }),
+            "SendMessage" | "LogInUsername" | "LogInPassword" | "RegisterUsername" | "RegisterPassword" => {
+                serde_json::json!({ "type": "request_c2s", "method": $method, "body": $body })
+            }
             "MessageRead" | "GetHistory" => unimplemented!(),
-            &_ => unreachable!()
+            _ => unreachable!(),
         };
         request.to_string()
     }}

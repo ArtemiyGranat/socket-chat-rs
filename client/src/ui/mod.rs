@@ -1,6 +1,6 @@
-pub mod chat;
-mod util;
 mod authorization;
 mod block;
-mod widgets;
+pub mod chat;
 mod style;
+mod util;
+mod widgets;

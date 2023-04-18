@@ -6,7 +6,7 @@ use tui::{
     Frame,
 };
 
-use crate::{client::Client, model::ClientState, model::Stage::*, ui::block::*, ui::util::*};
+use crate::{client::Client, model::Stage::*, model::State, ui::block::*, ui::util::*};
 
 pub(crate) fn menu_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     let rect = f.size();
@@ -34,8 +34,8 @@ pub(crate) fn menu_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .style(match client.client_state {
-                    ClientState::LoggingIn(_) => Style::default().fg(Color::Yellow),
+                .style(match client.state {
+                    State::LoggingIn(_) => Style::default().fg(Color::Yellow),
                     _ => Style::default(),
                 }),
         );
@@ -45,8 +45,8 @@ pub(crate) fn menu_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .style(match client.client_state {
-                    ClientState::Registering(_) => Style::default().fg(Color::Yellow),
+                .style(match client.state {
+                    State::Registering(_) => Style::default().fg(Color::Yellow),
                     _ => Style::default(),
                 }),
         );
@@ -82,9 +82,9 @@ pub(crate) fn log_in_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     f.render_widget(username_block, chunks[1]);
     f.render_widget(password_block, chunks[2]);
     f.render_widget(Clear, chunks[3]);
-    let area = match client.client_state {
-        ClientState::LoggingIn(Username) | ClientState::Registering(Username) => chunks[1],
-        ClientState::LoggingIn(Password) | ClientState::Registering(Password) => chunks[2],
+    let area = match client.state {
+        State::LoggingIn(Username) | State::Registering(Username) => chunks[1],
+        State::LoggingIn(Password) | State::Registering(Password) => chunks[2],
         _ => unreachable!(),
     };
     set_cursor(f, client, area);

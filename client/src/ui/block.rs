@@ -7,7 +7,7 @@ use super::{
 use crate::{
     client::Client,
     message::Message,
-    model::{ClientState, InputMode, Stage::*},
+    model::{InputMode, Stage::*, State},
 };
 use tui::{
     backend::Backend,
@@ -74,44 +74,36 @@ pub(crate) fn too_small<B: Backend>(f: &mut Frame<B>, w: u16, h: u16) {
 }
 
 pub(crate) fn username_block(client: &Client) -> Paragraph {
-    let input = match client.client_state {
-        ClientState::LoggingIn(Username) | ClientState::Registering(Username) => {
-            client.input.as_ref()
-        }
+    let input = match client.state {
+        State::LoggingIn(Username) | State::Registering(Username) => client.input.as_ref(),
         _ => client.username.as_ref(),
     };
     Paragraph::new(input)
-        .style(match client.client_state {
-            ClientState::LoggingIn(Username) | ClientState::Registering(Username) => {
-                match client.input_mode {
-                    InputMode::Insert if client.error_handler.is_none() => {
-                        Style::default().fg(Color::Yellow)
-                    }
-                    _ => Style::default(),
+        .style(match client.state {
+            State::LoggingIn(Username) | State::Registering(Username) => match client.input_mode {
+                InputMode::Insert if client.error_handler.is_none() => {
+                    Style::default().fg(Color::Yellow)
                 }
-            }
+                _ => Style::default(),
+            },
             _ => Style::default(),
         })
         .block(default_block(" Enter the username"))
 }
 
 pub(crate) fn password_block(client: &Client) -> Paragraph {
-    let input = match client.client_state {
-        ClientState::LoggingIn(Password) | ClientState::Registering(Password) => {
-            client.input.as_ref()
-        }
+    let input = match client.state {
+        State::LoggingIn(Password) | State::Registering(Password) => client.input.as_ref(),
         _ => "",
     };
     Paragraph::new(input)
-        .style(match client.client_state {
-            ClientState::LoggingIn(Password) | ClientState::Registering(Password) => {
-                match client.input_mode {
-                    InputMode::Insert if client.error_handler.is_none() => {
-                        Style::default().fg(Color::Yellow)
-                    }
-                    _ => Style::default(),
+        .style(match client.state {
+            State::LoggingIn(Password) | State::Registering(Password) => match client.input_mode {
+                InputMode::Insert if client.error_handler.is_none() => {
+                    Style::default().fg(Color::Yellow)
                 }
-            }
+                _ => Style::default(),
+            },
             _ => Style::default(),
         })
         .block(default_block(" Enter the password"))

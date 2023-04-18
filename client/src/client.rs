@@ -1,6 +1,6 @@
 use crate::{
     message::Message,
-    model::{ClientState, Request, InputMode, Stage::*, SERVER_SHUTDOWN_MESSAGE},
+    model::{InputMode, Request, Stage::*, State, SERVER_SHUTDOWN_MESSAGE},
     request_to_json,
     ui::chat,
 };
@@ -17,7 +17,7 @@ use tui::{backend::Backend, Terminal};
 
 pub(crate) struct Client {
     pub username: String,
-    pub client_state: ClientState,
+    pub state: State,
     pub input: String,
     pub input_mode: InputMode,
     pub messages: Vec<Message>,
@@ -28,7 +28,7 @@ impl Default for Client {
     fn default() -> Self {
         Self {
             username: String::new(),
-            client_state: ClientState::LoggingIn(Choosing),
+            state: State::LoggingIn(Choosing),
             input: String::new(),
             input_mode: InputMode::Insert,
             messages: Vec::new(),
@@ -105,7 +105,7 @@ impl Client {
     fn handle_request(&mut self, json_data: Value) {
         match json_data.get("method").and_then(|v| v.as_str()) {
             Some("SendMessage") | Some("Connection") => {
-                if let ClientState::LoggedIn = self.client_state {
+                if let State::LoggedIn = self.state {
                     let message = Message::from_json_value(json_data);
                     self.messages.push(message);
                 }
@@ -118,28 +118,29 @@ impl Client {
     fn handle_response(&mut self, json_data: Value) {
         match json_data.get("status_code").and_then(|v| v.as_i64()) {
             Some(200) => {
-                // TODO: HERE
-                match self.client_state {
-                    ClientState::LoggingIn(Username) | ClientState::Registering(Username) => {
-                        if let ClientState::LoggingIn(_) = self.client_state {
-                            self.client_state = ClientState::LoggingIn(Password);
+                match self.state {
+                    State::LoggingIn(Username) | State::Registering(Username) => {
+                        if let State::LoggingIn(_) = self.state {
+                            self.state = State::LoggingIn(Password);
                         } else {
-                            self.client_state = ClientState::Registering(Password);
+                            self.state = State::Registering(Password);
                         }
                     }
-                    ClientState::LoggingIn(Password) | ClientState::Registering(Password) => {
-                        self.client_state = ClientState::LoggedIn;
+                    State::LoggingIn(Password) | State::Registering(Password) => {
+                        self.state = State::LoggedIn;
                     }
-                    ClientState::LoggedIn => {
+                    State::LoggedIn => {
                         // TODO: Implement 'Delivered' icon
                     }
                     _ => unreachable!(),
                 }
             }
             Some(400) => {
-                self.error_handler = json_data.get("message").map(|msg| msg.to_string());
+                self.error_handler = json_data
+                    .get("message")
+                    .map(|msg| msg.as_str().unwrap().to_string());
                 // TODO: Implement new logic - push message to self.messages only if OK received
-                if let ClientState::LoggedIn = self.client_state {
+                if let State::LoggedIn = self.state {
                     self.messages.pop();
                 }
             }
@@ -149,8 +150,8 @@ impl Client {
 
     async fn handle_input_event(&mut self, key: KeyEvent, tx: &UnboundedSender<Request>) {
         if self.error_handler.is_none() {
-            match self.client_state {
-                ClientState::LoggingIn(Choosing) | ClientState::Registering(Choosing) => {
+            match self.state {
+                State::LoggingIn(Choosing) | State::Registering(Choosing) => {
                     self.handle_menu_events(key, tx).await
                 }
                 _ => match self.input_mode {
@@ -179,15 +180,19 @@ impl Client {
     async fn handle_insert_mode(&mut self, key: KeyEvent, tx: &UnboundedSender<Request>) {
         match key.code {
             KeyCode::Enter => {
-                // TODO: Somehow save username to username input block, maybe deal with ui
-                let command = if let ClientState::LoggedIn = self.client_state {
-                    Request::SendMessage(self.input.clone())
-                } else {
-                    Request::LogInUsername(self.input.clone())
+                let request = match self.state {
+                    State::LoggedIn => Request::SendMessage(self.input.clone()),
+                    State::LoggingIn(Username) | State::Registering(Username) => {
+                        Request::LogInUsername(self.input.clone())
+                    }
+                    State::LoggingIn(Password) | State::Registering(Password) => {
+                        Request::LogInPassword(self.input.clone())
+                    }
+                    _ => unreachable!(),
                 };
-                tx.send(command).unwrap();
+                tx.send(request).unwrap();
 
-                if let ClientState::LoggedIn = self.client_state {
+                if let State::LoggedIn = self.state {
                     let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
                     self.messages.push(Message::new(
                         self.input.clone(),
@@ -213,21 +218,20 @@ impl Client {
     }
 
     async fn handle_menu_events(&mut self, key: KeyEvent, tx: &UnboundedSender<Request>) {
-        match self.client_state {
-            ClientState::LoggingIn(Choosing) | ClientState::Registering(Choosing) => match key.code
-            {
+        match self.state {
+            State::LoggingIn(Choosing) | State::Registering(Choosing) => match key.code {
                 KeyCode::Down | KeyCode::Up | KeyCode::Char('j') | KeyCode::Char('k') => {
-                    if let ClientState::LoggingIn(_) = self.client_state {
-                        self.client_state = ClientState::Registering(Choosing);
+                    if let State::LoggingIn(_) = self.state {
+                        self.state = State::Registering(Choosing);
                     } else {
-                        self.client_state = ClientState::LoggingIn(Choosing);
+                        self.state = State::LoggingIn(Choosing);
                     }
                 }
                 KeyCode::Enter => {
-                    if let ClientState::LoggingIn(_) = self.client_state {
-                        self.client_state = ClientState::LoggingIn(Username);
+                    if let State::LoggingIn(_) = self.state {
+                        self.state = State::LoggingIn(Username);
                     } else {
-                        self.client_state = ClientState::Registering(Username);
+                        self.state = State::Registering(Username);
                     }
                 }
                 KeyCode::Char('q') => {
