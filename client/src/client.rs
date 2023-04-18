@@ -1,6 +1,6 @@
 use crate::{
     message::Message,
-    model::{ClientState, Command, InputMode, Stage::*, SERVER_SHUTDOWN_MESSAGE},
+    model::{ClientState, Request, InputMode, Stage::*, SERVER_SHUTDOWN_MESSAGE},
     request_to_json,
     ui::chat,
 };
@@ -45,22 +45,26 @@ impl Client {
     ) -> io::Result<()> {
         let mut event_reader = EventStream::new();
         let mut lines = Framed::new(stream, LinesCodec::new());
-        let (tx, mut rx) = mpsc::unbounded_channel::<Command>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<Request>();
 
         loop {
             terminal.draw(|f| chat::ui(f, &mut self))?;
             tokio::select! {
                 Some(command) = rx.recv() => {
                     match command {
-                        Command::SendMessage(data) => {
+                        Request::SendMessage(data) => {
                             let request = request_to_json!("SendMessage", data);
                             self.send_request(&mut lines, &request).await.unwrap();
                         },
-                        Command::LogInUsername(username) => {
+                        Request::LogInUsername(username) => {
                             let request = request_to_json!("LogInUsername", username);
                             self.send_request(&mut lines, &request).await.unwrap();
                         }
-                        Command::Exit => break Ok(()),
+                        Request::LogInPassword(password) => {
+                            let request = request_to_json!("LogInPassword", password);
+                            self.send_request(&mut lines, &request).await.unwrap();
+                        }
+                        Request::Exit => break Ok(()),
                     }
                 },
                 request = lines.next() => match request {
@@ -84,6 +88,7 @@ impl Client {
 
     fn handle_server_shutdown(&mut self) {
         let now = Local::now().format("%d-%m-%Y %H:%M").to_string();
+        // TODO: Dont close app after server shutdown
         self.messages
             .push(Message::new(SERVER_SHUTDOWN_MESSAGE.to_string(), None, now));
     }
@@ -113,10 +118,22 @@ impl Client {
     fn handle_response(&mut self, json_data: Value) {
         match json_data.get("status_code").and_then(|v| v.as_i64()) {
             Some(200) => {
-                if let ClientState::LoggingIn(_) = self.client_state {
-                    self.client_state = ClientState::LoggedIn;
-                } else {
-                    // TODO: Implement 'Delivered' icon
+                // TODO: HERE
+                match self.client_state {
+                    ClientState::LoggingIn(Username) | ClientState::Registering(Username) => {
+                        if let ClientState::LoggingIn(_) = self.client_state {
+                            self.client_state = ClientState::LoggingIn(Password);
+                        } else {
+                            self.client_state = ClientState::Registering(Password);
+                        }
+                    }
+                    ClientState::LoggingIn(Password) | ClientState::Registering(Password) => {
+                        self.client_state = ClientState::LoggedIn;
+                    }
+                    ClientState::LoggedIn => {
+                        // TODO: Implement 'Delivered' icon
+                    }
+                    _ => unreachable!(),
                 }
             }
             Some(400) => {
@@ -130,7 +147,7 @@ impl Client {
         }
     }
 
-    async fn handle_input_event(&mut self, key: KeyEvent, tx: &UnboundedSender<Command>) {
+    async fn handle_input_event(&mut self, key: KeyEvent, tx: &UnboundedSender<Request>) {
         if self.error_handler.is_none() {
             match self.client_state {
                 ClientState::LoggingIn(Choosing) | ClientState::Registering(Choosing) => {
@@ -147,25 +164,26 @@ impl Client {
         }
     }
 
-    async fn handle_normal_mode(&mut self, key: KeyEvent, tx: &UnboundedSender<Command>) {
+    async fn handle_normal_mode(&mut self, key: KeyEvent, tx: &UnboundedSender<Request>) {
         match key.code {
             KeyCode::Char('i') => {
                 self.input_mode = InputMode::Insert;
             }
             KeyCode::Char('q') => {
-                tx.send(Command::Exit).unwrap();
+                tx.send(Request::Exit).unwrap();
             }
             _ => {}
         }
     }
 
-    async fn handle_insert_mode(&mut self, key: KeyEvent, tx: &UnboundedSender<Command>) {
+    async fn handle_insert_mode(&mut self, key: KeyEvent, tx: &UnboundedSender<Request>) {
         match key.code {
             KeyCode::Enter => {
+                // TODO: Somehow save username to username input block, maybe deal with ui
                 let command = if let ClientState::LoggedIn = self.client_state {
-                    Command::SendMessage(self.input.clone())
+                    Request::SendMessage(self.input.clone())
                 } else {
-                    Command::LogInUsername(self.input.clone())
+                    Request::LogInUsername(self.input.clone())
                 };
                 tx.send(command).unwrap();
 
@@ -194,7 +212,7 @@ impl Client {
         }
     }
 
-    async fn handle_menu_events(&mut self, key: KeyEvent, tx: &UnboundedSender<Command>) {
+    async fn handle_menu_events(&mut self, key: KeyEvent, tx: &UnboundedSender<Request>) {
         match self.client_state {
             ClientState::LoggingIn(Choosing) | ClientState::Registering(Choosing) => match key.code
             {
@@ -213,11 +231,11 @@ impl Client {
                     }
                 }
                 KeyCode::Char('q') => {
-                    tx.send(Command::Exit).unwrap();
+                    tx.send(Request::Exit).unwrap();
                 }
-                _ => unreachable!(),
+                _ => {}
             },
-            _ => unreachable!(),
+            _ => {}
         }
     }
 

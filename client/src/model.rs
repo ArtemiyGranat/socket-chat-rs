@@ -21,8 +21,9 @@ pub(crate) enum InputMode {
 }
 
 #[derive(Debug)]
-pub(crate) enum Command {
+pub(crate) enum Request {
     Exit,
     SendMessage(String),
     LogInUsername(String),
+    LogInPassword(String),
 }

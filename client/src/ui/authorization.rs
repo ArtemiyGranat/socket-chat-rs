@@ -6,7 +6,7 @@ use tui::{
     Frame,
 };
 
-use crate::{client::Client, model::ClientState, ui::block::*, ui::util::*};
+use crate::{client::Client, model::ClientState, model::Stage::*, ui::block::*, ui::util::*};
 
 pub(crate) fn menu_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     let rect = f.size();
@@ -82,5 +82,10 @@ pub(crate) fn log_in_screen<B: Backend>(f: &mut Frame<B>, client: &mut Client) {
     f.render_widget(username_block, chunks[1]);
     f.render_widget(password_block, chunks[2]);
     f.render_widget(Clear, chunks[3]);
-    set_cursor(f, client, chunks[1]);
+    let area = match client.client_state {
+        ClientState::LoggingIn(Username) | ClientState::Registering(Username) => chunks[1],
+        ClientState::LoggingIn(Password) | ClientState::Registering(Password) => chunks[2],
+        _ => unreachable!(),
+    };
+    set_cursor(f, client, area);
 }

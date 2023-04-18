@@ -77,8 +77,8 @@ pub(crate) fn username_block(client: &Client) -> Paragraph {
     let input = match client.client_state {
         ClientState::LoggingIn(Username) | ClientState::Registering(Username) => {
             client.input.as_ref()
-        },
-        _ => "",
+        }
+        _ => client.username.as_ref(),
     };
     Paragraph::new(input)
         .style(match client.client_state {
@@ -99,7 +99,7 @@ pub(crate) fn password_block(client: &Client) -> Paragraph {
     let input = match client.client_state {
         ClientState::LoggingIn(Password) | ClientState::Registering(Password) => {
             client.input.as_ref()
-        },
+        }
         _ => "",
     };
     Paragraph::new(input)
