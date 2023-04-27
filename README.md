@@ -1,19 +1,19 @@
 # Rust TUI Socket Chat (WIP)
 This is a multi-threaded client-server application that allows people to exchange information using sockets.
-<!-- - [Rust TUI Socket Chat](#rust-tui-socket-chat--wip-) -->
-  * [Screenshots](#screenshots)
-  * [Content](#content)
-  * [Dependencies](#dependencies)
-  * [Setup](#setup)
-  * [Usage](#usage)
+
+* [Screenshots](#screenshots)
+* [Content](#content)
+* [Dependencies](#dependencies)
+* [Setup](#setup)
+* [Usage](#usage)
     + [Client](#client)
     + [Server](#server)
-  * [Features](#features)
-  * [To-do](#to-do)
+* [Features](#features)
+* [To-do](#to-do)
+* [Additional screenshots](#additional-screenshots)
+
 ## Screenshots
 ![Server logger](/screens/server.png?raw=true "Server logger")
-![Log in](/screens/log_in.png?raw=true "Log in screen")
-![Log in](/screens/terminal_size.png?raw=true "Terminal size is too small")
 ![Log in](/screens/chat.png?raw=true "Chat")
 ## Content
 * Folder `client` contains client source code
@@ -58,3 +58,6 @@ Server uses custom logger and logs all connections, disconnections and requests 
 * [ ] Rooms system
 * [ ] Create Homebrew formula and Linux (e.g. RPM) package
 * [ ] Share server Docker image via Docker Hub
+## Additional screenshots
+![Log in](/screens/log_in.png?raw=true "Log in screen")
+![Log in](/screens/terminal_size.png?raw=true "Terminal size is too small")
