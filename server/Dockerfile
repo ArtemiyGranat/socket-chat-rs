@@ -4,9 +4,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN cargo install sqlx-cli --no-default-features --features rustls,postgres
-RUN sqlx migrate run
-RUN cargo +nightly build --release
+RUN cargo install sqlx-cli --no-default-features --features rustls,postgres && cargo +nightly build --release
 
 EXPOSE 8080
 

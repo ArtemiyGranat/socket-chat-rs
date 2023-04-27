@@ -1,16 +1,13 @@
 version: '3.8'
 services:
-  server:
-    container_name: socket-chat-server
-    build: .
-    restart: always
-    ports:
-      - 8080:8080
   postgres:
     image: postgres
+    restart: always
     environment:
       POSTGRES_DB: "socket-chat-db"
       POSTGRES_USER: ""
       POSTGRES_PASSWORD: ""
     ports:
-      - "5432:5432"
+      - 5432:5432
+    volumes:
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
