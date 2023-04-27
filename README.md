@@ -1,5 +1,5 @@
 # Rust TUI Socket Chat (WIP)
-This is a multi-threaded client-server application that allows people to exchange information using sockets.
+This is a multithreaded client-server application that allows people to exchange information using sockets. 
 
 * [Screenshots](#screenshots)
 * [Content](#content)
@@ -13,20 +13,20 @@ This is a multi-threaded client-server application that allows people to exchang
 * [Additional screenshots](#additional-screenshots)
 
 ## Screenshots
-![Server logger](/screens/server.png?raw=true "Server logger")
 ![Log in](/screens/chat.png?raw=true "Chat")
+![Server logger](/screens/server.png?raw=true "Server logger")
 ## Content
-* Folder `client` contains client source code
-* Folder `server` contains server source code and Docker config files to containerize server via `docker-compose`.
+* The `client` folder contains the client source code
+* The `server` folder contains the server source code and Docker configuration files for server containerization using `docker-compose`.
 ## Dependencies
 * Docker
 * Rust
 * Cargo
 
-Make sure that you have Docker (only for the server), Rust and Cargo installed on your local machine, otherwise download it from the official site or from your package manager.
+Make sure you have Docker (server only), Rust and Cargo installed on your local machine, otherwise download it from the official site or from your package manager.
 ## Setup
 1. Install the dependencies on your local machine
-2. Create a `.env` file in the `server` folder to connect to the database. The `.env` file must contain a link to the database by which the server will connect to it. You can use the commands below with changed `<username>` and `<password>` to whatever you want.
+2. Create a `.env` file in the `server` folder to connect to the database. The `.env` file must contain a link to the database that the server will use to connect to it. You can use the commands below with `<username>` and `<password>` changed to whatever you want.
 ```
 cd server
 touch .env
@@ -46,18 +46,18 @@ docker compose-up -d
 cargo run --release
 ```
 ## Features
-Currently socket chat is in the early stage of development so now user can only connect to the server and send/receive messages to/from another users connected to the server.
+Socket chat is currently at an early stage of development, so for now the user can only connect to the server and exchange messages with other users connected to the server.
 
-Server uses custom logger and logs all connections, disconnections and requests from the clients (except data because of security), also it sends every new connection/disconnection to the clients.
+The server uses a custom logger and logs all connections, disconnections and requests from clients (except received data due to security), and sends each new connection / disconnection to the clients.
 ## To-do
 * [ ] Authentification system (WIP)
 * [ ] Data encryption
-* [ ] Improved Docker container (must weigh <500Mb for sure)
+* [ ] Improved Docker container (must be <500Mb, WIP)
 * [ ] Message history available to the users
 * [ ] Commands system (e.g. private message: `@user hi`, get online list: `/online`)
 * [ ] Rooms system
-* [ ] Create Homebrew formula and Linux (e.g. RPM) package
-* [ ] Share server Docker image via Docker Hub
+* [ ] Homebrew formula and Linux (e.g. RPM) package
+* [ ] Push Docker image to Docker Hub
 ## Additional screenshots
 ![Log in](/screens/log_in.png?raw=true "Log in screen")
 ![Log in](/screens/terminal_size.png?raw=true "Terminal size is too small")
